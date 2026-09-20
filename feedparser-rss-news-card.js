@@ -21,6 +21,10 @@ const RSS_LOCALES = {
       exclude_categories: 'Exclude categories (comma-separated)',
       max_articles:      'Max articles',
       card_height:       'Card height (px)',
+      image_position:    'Image position',
+      pos_left:          'Left of the text',
+      pos_top:           'Above the description',
+      img_radius:        'Image corner radius (px)',
       img_width:         'Image width (px)',
       img_height:        'Image height (px)',
       show_source:       'Show source name',
@@ -58,6 +62,10 @@ const RSS_LOCALES = {
       exclude_categories:  'Kizárt kategóriák (vesszővel elválasztva)',
       max_articles:        'Max cikkek száma',
       card_height:         'Kártya magassága (px)',
+      image_position:      'Kép elhelyezése',
+      pos_left:            'A szöveg bal oldalán',
+      pos_top:             'A leírás fölött',
+      img_radius:          'Kép sarok lekerekítése (px)',
       img_width:           'Kép szélessége (px)',
       img_height:          'Kép magassága (px)',
       show_source:         'Forrás neve látható',
@@ -95,6 +103,10 @@ const RSS_LOCALES = {
       exclude_categories:  'Kategorien ausschließen (kommagetrennt)',
       max_articles:        'Max. Artikel',
       card_height:         'Kartenhöhe (px)',
+      image_position:      'Bildposition',
+      pos_left:            'Links vom Text',
+      pos_top:             'Über der Beschreibung',
+      img_radius:          'Eckenradius des Bildes (px)',
       img_width:           'Bildbreite (px)',
       img_height:          'Bildhöhe (px)',
       show_source:         'Quellenname anzeigen',
@@ -224,6 +236,52 @@ function hostnameFromUrl(value) {
   }
 }
 
+// The feedparser integration falls back to this when it finds no image of its own.
+const HA_DEFAULT_THUMBNAIL = 'https://www.home-assistant.io/images/favicon-192x192-full.png';
+
+/** First <img> of an HTML fragment. DOMParser builds an inert document: nothing is fetched. */
+function firstImageInHtml(html) {
+  if (!html) return '';
+  try {
+    const doc = new DOMParser().parseFromString(String(html), 'text/html');
+    const img = doc.querySelector('img[src]');
+    // getAttribute, not .src: the latter would resolve a relative path against the card.
+    return img ? sanitizeUrl(img.getAttribute('src')) : '';
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Picks an article's image from whichever field the feed happens to use.
+ *
+ * The integration only ever looks at <enclosure> and at <img> tags inside the summary, so a
+ * feed carrying its image solely in <media:content> — common on WordPress sites — ends up with
+ * the Home Assistant favicon instead. Reading the other fields here covers those articles
+ * without touching the integration.
+ *
+ * That favicon is therefore demoted to last resort rather than accepted first, otherwise it
+ * would shadow the very fields that hold the real image. Every candidate goes through
+ * sanitizeUrl(), so feed data still cannot inject anything.
+ */
+function resolveArticleImage(a) {
+  const candidates = [];
+  const push = (value) => { const url = sanitizeUrl(value); if (url) candidates.push(url); };
+  const pushList = (list, pick) => { if (Array.isArray(list)) list.forEach(item => item && push(pick(item))); };
+  const isImage = (item) => item.medium === 'image' || String(item.type || '').startsWith('image/');
+
+  push(typeof a.image === 'string' ? a.image : a.image?.href ?? a.image?.url);
+  // Images first, then anything else carrying a URL: some feeds omit medium and type.
+  pushList((a.media_content || []).filter(isImage), m => m.url ?? m.href);
+  pushList((a.media_content || []).filter(m => !isImage(m)), m => m.url ?? m.href);
+  pushList(a.media_thumbnail, m => m.url ?? m.href);
+  pushList((a.enclosures || []).filter(isImage), e => e.href ?? e.url);
+  pushList((a.links || []).filter(l => l.rel === 'enclosure' && isImage(l)), l => l.href ?? l.url);
+  push(firstImageInHtml(a.summary));
+
+  return candidates.find(url => url !== HA_DEFAULT_THUMBNAIL) || candidates[0] || '';
+}
+
 /**
  * Stable hue (0-359) derived from a domain, so a site always gets the same colour
  * without any configuration, and a site added to the feed later just works.
@@ -300,6 +358,8 @@ class FeedparserRssNewsCard extends HTMLElement {
       show_date: true,
       show_images: true,
       keep_image_space: false,
+      image_position: 'left',
+      image_radius: 6,
       image_width: 100,
       image_height: 70,
       title_font_size: 15,
@@ -328,6 +388,9 @@ class FeedparserRssNewsCard extends HTMLElement {
       show_date:        config.show_date !== false,
       show_images:      config.show_images !== false,
       keep_image_space: config.keep_image_space === true,
+      image_position:   config.image_position === 'top' ? 'top' : 'left',
+      image_radius:     Number.isFinite(parseInt(config.image_radius, 10)) && parseInt(config.image_radius, 10) >= 0
+                          ? parseInt(config.image_radius, 10) : 6,
       image_width:      config.image_width || 100,
       image_height:     config.image_height || 70,
       title_font_size:  config.title_font_size || 15,
@@ -480,7 +543,7 @@ class FeedparserRssNewsCard extends HTMLElement {
   }
 
   _buildArticleNodes(articles) {
-    const { show_source, show_domain, show_date, show_description, image_width, image_height, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
+    const { show_source, show_domain, show_date, show_description, image_width, image_height, image_position, image_radius, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
     const t = this._t();
     const frag = document.createDocumentFragment();
     if (articles.length === 0) {
@@ -494,6 +557,8 @@ class FeedparserRssNewsCard extends HTMLElement {
     const descSize = parseInt(desc_font_size, 10) || 14;
     const descLen = parseInt(max_description_length, 10) || 0;
     const descLines = parseInt(description_max_lines, 10) || 0;
+    const imageTop = image_position === 'top';
+    const imgRadius = Number.isFinite(parseInt(image_radius, 10)) ? parseInt(image_radius, 10) : 6;
     const titleColor = sanitizeCssColor(article_title_color, 'var(--primary-text-color)');
     const descColor = sanitizeCssColor(desc_color, 'var(--secondary-text-color)');
 
@@ -506,24 +571,32 @@ class FeedparserRssNewsCard extends HTMLElement {
       const row = el('div', 'article-row');
       if (link) row.dataset.rssUrl = link;
 
+      // On top, the image spans the row, so only its height is configurable.
+      const imageBox = (imageTop
+        ? `width:100%;height:${imgH}px;`
+        : `width:${imgW}px;min-width:${imgW}px;height:${imgH}px;`) + `border-radius:${imgRadius}px;`;
+      let imageNode = null;
       if (show_images) {
-        const image = sanitizeUrl(a.image);
+        const image = resolveArticleImage(a);
         if (image) {
           const img = el('img', 'article-image');
           img.src = image;
           img.alt = '';
           img.referrerPolicy = 'no-referrer';
-          img.style.cssText = `width:${imgW}px;min-width:${imgW}px;height:${imgH}px;`;
+          img.style.cssText = imageBox;
           img.addEventListener('error', () => {
             if (keep_image_space) img.style.visibility = 'hidden';
             else img.style.display = 'none';
           });
-          row.appendChild(img);
+          imageNode = img;
         } else if (keep_image_space) {
           const placeholder = document.createElement('div');
-          placeholder.style.cssText = `width:${imgW}px;min-width:${imgW}px;height:${imgH}px;flex-shrink:0;`;
-          row.appendChild(placeholder);
+          placeholder.style.cssText = imageBox + (imageTop ? '' : 'flex-shrink:0;');
+          imageNode = placeholder;
         }
+        // Left of the text, the image is a sibling of the content column; on top it belongs
+        // inside that column, so that it lines up with the title rather than with the row.
+        if (imageNode && !imageTop) row.appendChild(imageNode);
       }
 
       const content = el('div', 'article-content');
@@ -558,6 +631,11 @@ class FeedparserRssNewsCard extends HTMLElement {
           });
           content.appendChild(meta);
         }
+      }
+
+      if (imageNode && imageTop) {
+        imageNode.classList.add('image-top');
+        content.appendChild(imageNode);
       }
 
       if (show_description && desc) {
@@ -622,7 +700,8 @@ class FeedparserRssNewsCard extends HTMLElement {
           background: oklch(0.58 0.22 var(--domain-hue, 0) / 0.16); }
         .article-description { line-height: 1.4; white-space: normal; word-break: break-word; }
         .article-description.clamped { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
-        .article-image { object-fit: cover; border-radius: 6px; flex-shrink: 0; }
+        .article-image { object-fit: cover; flex-shrink: 0; }
+        .article-image.image-top, .article-content > div.image-top { display: block; margin: 10px 0; }
         .diagnostics-panel { background: var(--error-color, #ffcccc); padding: 12px; margin-bottom: 8px; border-radius: 4px; }
         .diagnostics-panel ul { margin: 8px 0; padding-left: 20px; }
       </style>
@@ -774,6 +853,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
       <style>
         .editor { padding: 12px; }
         .editor label { display: block; font-size: 12px; color: var(--secondary-text-color); margin: 10px 0 4px; }
+        .editor select { width: 100%; padding: 4px 8px; box-sizing: border-box; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--card-background-color); color: var(--primary-text-color); }
         .editor input[type=text], .editor input[type=number] { width: 100%; padding: 4px 8px; box-sizing: border-box; border: 1px solid var(--divider-color); border-radius: 4px; background: var(--card-background-color); color: var(--primary-text-color); }
         .source-row { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; }
         .source-row input { width: auto !important; }
@@ -812,6 +892,15 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
 
         <label>${t.ed.card_height}</label>
         <input type="number" id="ed-height" min="100" max="2000" value="${c.card_height || 400}"/>
+
+        <label>${t.ed.image_position}</label>
+        <select id="ed-imgpos">
+          <option value="left" ${c.image_position !== 'top' ? 'selected' : ''}>${t.ed.pos_left}</option>
+          <option value="top" ${c.image_position === 'top' ? 'selected' : ''}>${t.ed.pos_top}</option>
+        </select>
+
+        <label>${t.ed.img_radius}</label>
+        <input type="number" id="ed-imgradius" min="0" max="40" value="${c.image_radius === undefined ? 6 : c.image_radius}"/>
 
         <label>${t.ed.img_width}</label>
         <input type="number" id="ed-imgw" min="50" max="300" value="${c.image_width || 100}"/>
@@ -993,6 +1082,8 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     bind('#ed-exclude-cats', 'exclude_categories');
     bind('#ed-max',      'max_articles',    v => parseInt(v) || 10);
     bind('#ed-height',   'card_height',     v => parseInt(v) || 400);
+    bind('#ed-imgpos',   'image_position',  v => v === 'top' ? 'top' : 'left');
+    bind('#ed-imgradius','image_radius',    v => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : 6; });
     bind('#ed-imgw',     'image_width',     v => parseInt(v) || 100);
     bind('#ed-imgh',     'image_height',    v => parseInt(v) || 70);
     bind('#ed-titlesize','title_font_size', v => parseInt(v) || 15);
@@ -1062,6 +1153,8 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     set('#ed-exclude-cats', c.exclude_categories);
     set('#ed-max',       c.max_articles);
     set('#ed-height',    c.card_height);
+    set('#ed-imgpos',    c.image_position || 'left');
+    set('#ed-imgradius', c.image_radius === undefined ? 6 : c.image_radius);
     set('#ed-imgw',      c.image_width);
     set('#ed-imgh',      c.image_height);
     set('#ed-titlesize', c.title_font_size);

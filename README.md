@@ -47,6 +47,9 @@ You will need to refresh the browser page for updates to work.
 `<description>` element into `summary`, so `description` in `inclusions` silently matches
 nothing and the card shows no text at all.*
 
+*Note: include `media_content` if your feeds put their image in `<media:content>` — see
+[Article images](#article-images) below.*
+
 ```yaml
 sensor:
   - platform: feedparser
@@ -61,6 +64,7 @@ sensor:
       - link
       - summary
       - image
+      - media_content
       - published
       - tags
 
@@ -79,8 +83,10 @@ description_max_lines: 3
 show_source: true
 show_domain: true
 show_date: true
+image_position: left
 image_width: 100
 image_height: 70
+image_radius: 6
 exclude_categories: formule-1, voetbal
 sources:
   - entity: sensor.rss_nu_nl_feed
@@ -91,6 +97,50 @@ sources:
     color: "#0077cc"
 
 ```
+
+### Image position
+
+`image_position` controls where an article's image sits:
+
+| Value | Layout |
+| --- | --- |
+| `left` (default) | Thumbnail in a column to the left of the text, sized by `image_width` × `image_height`. |
+| `top` | Image below the title and the source line, above the description. It spans the full width of the card, so `image_width` no longer applies and only `image_height` is used. |
+
+With `top`, raise `image_height` — the 70px default was meant for a 100px-wide thumbnail and
+looks like a thin strip once stretched across the card; 130–160 reads better. Expect articles
+to be noticeably taller, so fewer of them fit in a given `card_height`.
+
+`image_radius` rounds the image corners, in pixels. It defaults to `6`, which is what the card
+has always used; `0` gives square corners and larger values read better on a full-width image.
+The reserved block of `keep_image_space` is rounded to match.
+
+`keep_image_space` works in both layouts: with `top` it reserves a full-width block of
+`image_height`. On `top` the image also carries a 10px margin above and below (and none on the
+sides, so it stays flush with the text), keeping it off the source line and the description.
+
+### Article images
+
+The integration only looks for an image in `<enclosure>` and in `<img>` tags inside the
+summary. A feed that carries its image solely in `<media:content>` — common on WordPress
+sites — therefore reaches the card with the Home Assistant favicon instead of its picture.
+
+The card widens the search and takes the first usable URL from, in order:
+
+1. `image` (a plain URL, or an object with `href` / `url`)
+2. `media_content`, images first
+3. `media_thumbnail`
+4. `enclosures` of an image type
+5. `links` with `rel="enclosure"` and an image type
+6. the first `<img>` found in the summary
+
+The Home Assistant favicon is demoted to last resort rather than taken first, so it never
+shadows a field holding the real image. Every candidate must be an absolute `http(s)` URL,
+so a relative path or a `javascript:` value yields no image rather than a broken one.
+
+For the extra fields to reach the card they have to survive the integration's `inclusions`
+filter, hence `media_content` in the sensor example above. Feeds whose images are inline in
+the summary need `summary` instead.
 
 ### Aggregated feeds
 
