@@ -232,6 +232,14 @@ appears when the option is on, so a card that never asked for this gains no cont
 Read articles are filtered before `max_articles` is applied, so hiding three of them backfills
 the list with three more rather than leaving you short.
 
+Each row also carries a ✕ that marks the article as read without opening it, for the ones you
+can tell from the title you do not want. It applies immediately — that row goes away and another
+takes its place — since making it disappear is the whole point, and the scroll position is kept
+so the list does not jump back to the top. On a mouse the ✕ shows up when the pointer is over the
+row or when it is reached with the keyboard; on a touch screen, where there is no hover, it is
+always visible. It only appears when `hide_visited` is on: without that option, marking an article
+as read merely greys its title, and a cross would promise a disappearance that never comes.
+
 What to expect, since none of it is obvious:
 
 - The list lives in `localStorage`, so it survives reloads but is **per browser**: an article

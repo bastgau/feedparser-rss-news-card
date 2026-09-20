@@ -16,6 +16,7 @@ const RSS_LOCALES = {
     hidden_read_one: '{n} read hidden',
     show_read: 'show',
     hide_read: 'hide read',
+    dismiss: 'Mark as read without opening',
     cmd_hint: 'Ensure feedparser is configured correctly:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:        'Card title',
@@ -66,6 +67,7 @@ const RSS_LOCALES = {
     hidden_read_one: '{n} olvasott elrejtve',
     show_read: 'megjelenítés',
     hide_read: 'olvasottak elrejtése',
+    dismiss: 'Megjelölés olvasottként megnyitás nélkül',
     cmd_hint: 'Feedparser beállítás szükséges:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kártya cime',
@@ -116,6 +118,7 @@ const RSS_LOCALES = {
     hidden_read_one: '{n} gelesene ausgeblendet',
     show_read: 'anzeigen',
     hide_read: 'gelesene ausblenden',
+    dismiss: 'Als gelesen markieren, ohne zu öffnen',
     cmd_hint: 'feedparser Konfiguration erforderlich:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kartentitel',
@@ -166,6 +169,7 @@ const RSS_LOCALES = {
     hidden_read_one: '{n} lu masqué',
     show_read: 'afficher',
     hide_read: 'masquer les lus',
+    dismiss: 'Marquer comme lu sans ouvrir',
     cmd_hint: 'Vérifiez la configuration de feedparser\u00A0:<br><b>platform\u00A0:</b> feedparser<br><b>inclusions\u00A0:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Titre de la carte',
@@ -712,7 +716,7 @@ class FeedparserRssNewsCard extends HTMLElement {
   }
 
   _buildArticleNodes(articles) {
-    const { show_source, show_domain, show_date, show_description, image_width, image_height, image_position, image_radius, default_image, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
+    const { show_source, show_domain, show_date, show_description, image_width, image_height, image_position, image_radius, default_image, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space, hide_visited } = this._config;
     const t = this._t();
     const frag = document.createDocumentFragment();
     if (articles.length === 0) {
@@ -825,6 +829,20 @@ class FeedparserRssNewsCard extends HTMLElement {
       }
 
       row.appendChild(content);
+
+      // Discarding an article only means something where read articles are hidden: without
+      // hide_visited a cross would grey the title out and leave the row in place.
+      if (hide_visited && link) {
+        const dismiss = el('button', 'article-dismiss', '\u2715');
+        dismiss.type = 'button';
+        // A control with no text needs a name of its own for screen readers.
+        dismiss.setAttribute('aria-label', t.dismiss);
+        dismiss.title = t.dismiss;
+        row.appendChild(dismiss);
+        // Keeps the first line of the title clear of the button, which is out of the flow.
+        row.classList.add('has-dismiss');
+      }
+
       frag.appendChild(row);
     });
     return frag;
@@ -855,7 +873,21 @@ class FeedparserRssNewsCard extends HTMLElement {
         .visited-toggle { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px; }
         .visited-toggle button { font: inherit; color: var(--primary-color); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
         .no-articles { padding: 20px; color: var(--secondary-text-color); text-align: center; }
-        .article-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--divider-color); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        .article-row { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--divider-color); cursor: pointer; -webkit-tap-highlight-color: transparent; }
+        /* Anchored to the row rather than to the text, so it lands in the same place whether
+           the image sits in a left column or above the description. The padding gives it a
+           touch target of 32px while the cross itself stays small. */
+        .article-dismiss { position: absolute; top: 4px; right: 0; width: 32px; height: 32px; padding: 0;
+          font: inherit; font-size: 14px; line-height: 1; color: var(--secondary-text-color);
+          background: none; border: none; border-radius: 50%; cursor: pointer; }
+        .article-dismiss:hover { color: var(--primary-text-color); background: var(--divider-color); }
+        .article-row.has-dismiss .article-title { padding-right: 36px; }
+        /* Without a pointer there is no hover to reveal it, so it stays on screen. */
+        @media (hover: none) { .article-dismiss { opacity: 1; } }
+        @media (hover: hover) {
+          .article-dismiss { opacity: 0; transition: opacity 0.15s; }
+          .article-row:hover .article-dismiss, .article-dismiss:focus-visible { opacity: 1; }
+        }
         .article-content { flex: 1; min-width: 0; text-align: left; }
         .article-title { font-weight: 600; line-height: 1.4; white-space: normal; word-break: break-word; margin-bottom: 4px; }
         .article-meta { font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
@@ -977,6 +1009,23 @@ class FeedparserRssNewsCard extends HTMLElement {
           const rowTitle = row.querySelector('.article-title');
           if (rowTitle) rowTitle.style.color = 'var(--disabled-text-color)';
           this._handleLinkClick(url);
+        });
+      });
+      artEl.querySelectorAll('.article-dismiss').forEach(btn => {
+        btn.addEventListener('click', ev => {
+          // The whole row opens the article, and the button sits inside it.
+          ev.stopPropagation();
+          const url = sanitizeUrl(btn.closest('.article-row')?.dataset.rssUrl);
+          if (!url) return;
+          this._markVisited(url);
+          // Unlike the opening click, whose effect is deferred so a row never vanishes under
+          // the finger, making the article go away is the whole point here.
+          const scroll = this.shadowRoot.querySelector('.scroll-container');
+          const offset = scroll ? scroll.scrollTop : 0;
+          this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
+          // The list is rebuilt from scratch, which would otherwise send the view back to
+          // the top of a feed the reader had scrolled into.
+          if (scroll) scroll.scrollTop = offset;
         });
       });
       this._fitDescriptions();
