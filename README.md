@@ -137,14 +137,14 @@ The card widens the search and takes the first usable URL from, in order:
 5. `links` with `rel="enclosure"` and an image type
 6. the first `<img>` found in the summary
 
-The Home Assistant favicon is demoted to last resort rather than taken first, so it never
-shadows a field holding the real image. Every candidate coming from the feed must be an absolute
-`http(s)` URL, so a relative path or a `javascript:` value yields no image rather than a broken
-one.
+The Home Assistant favicon the integration substitutes when it finds nothing marks the *absence*
+of an image rather than being one, so the card discards it and never draws it. It is recognised
+by host and filename, not by one exact URL, so another favicon size is caught too; an article
+genuinely illustrated with a picture from `home-assistant.io` keeps its image. Every candidate
+coming from the feed must be an absolute `http(s)` URL, so a relative path or a `javascript:`
+value yields no image rather than a broken one.
 
-When nothing is found, the integration hands back that favicon, which rarely suits a news list.
-Point `default_image` at your own picture to replace it — and to fill in for articles that would
-otherwise show none at all:
+Point `default_image` at your own picture to fill in for articles that end up with no image:
 
 ```yaml
 default_image: /local/feedparser-placeholder.svg
@@ -161,10 +161,16 @@ keeps the stricter rule and can never point at a local path. A protocol-relative
 (`//example.com/x.png`) is another origin in disguise and is rejected. An article that carries a
 real image still uses it; leave the option empty to keep the current behaviour.
 
-`keep_image_space` has the final say for an article carrying no image at all: with it off, the
-row stays free of any thumbnail and the fallback is not drawn either, which is what asking for
-no reserved space means. The favicon is a different matter — it stands in for an image the
-article does have — so it is replaced by the fallback whatever `keep_image_space` says.
+`keep_image_space` has the final say. With it off, an article without an image gets no thumbnail
+at all and the fallback is not drawn either — that is what asking for no reserved space means, so
+`default_image` only takes effect alongside `keep_image_space: true`:
+
+| `keep_image_space` | `default_image` | Article with no image |
+| --- | --- | --- |
+| `false` | — | nothing |
+| `false` | set | nothing |
+| `true` | — | empty block the size of the image |
+| `true` | set | the fallback image |
 
 For the extra fields to reach the card they have to survive the integration's `inclusions`
 filter, hence `media_content` in the sensor example above. Feeds whose images are inline in

@@ -316,6 +316,25 @@ function hostnameFromUrl(value) {
 // The feedparser integration falls back to this when it finds no image of its own.
 const HA_DEFAULT_THUMBNAIL = 'https://www.home-assistant.io/images/favicon-192x192-full.png';
 
+/**
+ * True for the stand-in the integration supplies when it finds nothing. It marks the absence of
+ * an image rather than being one, so the card treats it as no image at all.
+ *
+ * Matched by host and filename rather than by the exact URL, so a different favicon size is
+ * recognised too; an article genuinely illustrated with a picture from home-assistant.io keeps
+ * its image, since only favicons are discarded.
+ */
+function isPlaceholderImage(url) {
+  if (!url) return true;
+  if (url === HA_DEFAULT_THUMBNAIL) return true;
+  try {
+    const { hostname, pathname } = new URL(url);
+    return /(^|\.)home-assistant\.io$/.test(hostname) && /favicon/i.test(pathname);
+  } catch {
+    return false;
+  }
+}
+
 /** First <img> of an HTML fragment. DOMParser builds an inert document: nothing is fetched. */
 function firstImageInHtml(html) {
   if (!html) return '';
@@ -728,13 +747,11 @@ class FeedparserRssNewsCard extends HTMLElement {
       let imageNode = null;
       if (show_images) {
         const found = resolveArticleImage(a);
-        // The integration's favicon stands in for an image the article does have, so a configured
-        // fallback always replaces it. When the article carries none at all, keep_image_space is
-        // what decides whether the row gets a thumbnail — a card asking for no reserved space
-        // should not gain one through the fallback.
-        const image = default_image && (found === HA_DEFAULT_THUMBNAIL || (!found && keep_image_space))
-          ? default_image
-          : found;
+        // The integration's stand-in means "no image", so it never reaches the page. What is
+        // drawn in its place is then keep_image_space's call: off, the row carries no thumbnail
+        // at all, which is what asking for no reserved space means.
+        const real = isPlaceholderImage(found) ? '' : found;
+        const image = !real && keep_image_space && default_image ? default_image : real;
         if (image) {
           const img = el('img', 'article-image');
           img.src = image;
