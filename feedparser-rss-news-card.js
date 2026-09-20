@@ -30,6 +30,8 @@ const RSS_LOCALES = {
       keep_image_space:  'Keep space if image missing',
       title_size:        'Article title font size (px)',
       desc_size:         'Description font size (px)',
+      desc_length:       'Max description length (chars, 0 = no limit)',
+      desc_lines:        'Max description lines (0 = no limit)',
       color_hint:        'Leave empty for theme default',
     },
   },
@@ -64,6 +66,8 @@ const RSS_LOCALES = {
       keep_image_space:    'Hely megtartása hiányzó képnél',
       title_size:          'Cím betűmérete (px)',
       desc_size:           'Leírás betűmérete (px)',
+      desc_length:         'Leírás max. hossza (karakter, 0 = nincs korlát)',
+      desc_lines:          'Leírás max. sorszáma (0 = nincs korlát)',
       color_hint:          'Üresen hagyva a téma alapszínét használja',
     },
   },
@@ -98,6 +102,8 @@ const RSS_LOCALES = {
       keep_image_space:    'Platz freihalten wenn Bild fehlt',
       title_size:          'Schriftgröße Artikeltitel (px)',
       desc_size:           'Schriftgröße Beschreibung (px)',
+      desc_length:         'Max. Beschreibungslänge (Zeichen, 0 = unbegrenzt)',
+      desc_lines:          'Max. Beschreibungszeilen (0 = unbegrenzt)',
       color_hint:          'Leer lassen für Themenstandardfarbe',
     },
   },
@@ -199,6 +205,17 @@ function feedTextToPlain(value) {
   }
 }
 
+const ELLIPSIS = '\u00A0...';
+
+function truncateText(value, maxChars) {
+  const str = String(value ?? '').replace(/\s+/g, ' ').trim();
+  const limit = parseInt(maxChars, 10);
+  if (!Number.isFinite(limit) || limit <= 0 || str.length <= limit) return str;
+  const clipped = str.slice(0, limit);
+  const lastSpace = clipped.lastIndexOf(' ');
+  return (lastSpace > 0 ? clipped.slice(0, lastSpace) : clipped).trimEnd() + ELLIPSIS;
+}
+
 /** Only allow simple CSS colour values (named, hex, rgb()/hsl(), CSS vars). */
 function sanitizeCssColor(value, fallback) {
   if (typeof value !== 'string') return fallback;
@@ -224,6 +241,8 @@ class FeedparserRssNewsCard extends HTMLElement {
     this._articles = [];
     this._lastStateKey = '';
     this._initialized = false;
+    // Pre-clamp text per description node; a WeakMap keeps it out of the DOM.
+    this._fullDescriptions = new WeakMap();
   }
 
   static getConfigElement() {
@@ -246,6 +265,8 @@ class FeedparserRssNewsCard extends HTMLElement {
       image_height: 70,
       title_font_size: 15,
       desc_font_size: 14,
+      max_description_length: 200,
+      description_max_lines: 3,
       card_title_color: '',
       article_title_color: '',
       desc_color: '',
@@ -271,6 +292,9 @@ class FeedparserRssNewsCard extends HTMLElement {
       image_height:     config.image_height || 70,
       title_font_size:  config.title_font_size || 15,
       desc_font_size:   config.desc_font_size || 14,
+      // 0 means "no limit", which keeps existing cards rendering as before.
+      max_description_length: parseInt(config.max_description_length, 10) || 0,
+      description_max_lines:  parseInt(config.description_max_lines, 10) || 0,
       card_title_color: config.card_title_color || '',
       article_title_color: config.article_title_color || '',
       desc_color:       config.desc_color || '',
@@ -416,7 +440,7 @@ class FeedparserRssNewsCard extends HTMLElement {
   }
 
   _buildArticleNodes(articles) {
-    const { show_source, show_date, show_description, image_width, image_height, title_font_size, desc_font_size, article_title_color, desc_color, show_images, keep_image_space } = this._config;
+    const { show_source, show_date, show_description, image_width, image_height, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
     const t = this._t();
     const frag = document.createDocumentFragment();
     if (articles.length === 0) {
@@ -428,13 +452,15 @@ class FeedparserRssNewsCard extends HTMLElement {
     const imgH = parseInt(image_height, 10) || 70;
     const titleSize = parseInt(title_font_size, 10) || 15;
     const descSize = parseInt(desc_font_size, 10) || 14;
+    const descLen = parseInt(max_description_length, 10) || 0;
+    const descLines = parseInt(description_max_lines, 10) || 0;
     const titleColor = sanitizeCssColor(article_title_color, 'var(--primary-text-color)');
     const descColor = sanitizeCssColor(desc_color, 'var(--secondary-text-color)');
 
     articles.forEach(a => {
       const link = sanitizeUrl(a.link);
       const title = feedTextToPlain(a.title);
-      const desc = feedTextToPlain(a.summary);
+      const desc = truncateText(feedTextToPlain(a.summary), descLen);
       const pubDate = typeof a.published === 'string' ? a.published : '';
 
       const row = el('div', 'article-row');
@@ -483,6 +509,11 @@ class FeedparserRssNewsCard extends HTMLElement {
         const descEl = el('div', 'article-description', desc);
         descEl.style.fontSize = `${descSize}px`;
         descEl.style.color = descColor;
+        if (descLines > 0) {
+          descEl.classList.add('clamped');
+          descEl.style.webkitLineClamp = String(descLines);
+          this._fullDescriptions.set(descEl, desc);
+        }
         content.appendChild(descEl);
       }
 
@@ -522,6 +553,7 @@ class FeedparserRssNewsCard extends HTMLElement {
         .article-source { font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
         .article-meta-separator { opacity: 0.4; }
         .article-description { line-height: 1.4; white-space: normal; word-break: break-word; }
+        .article-description.clamped { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
         .article-image { object-fit: cover; border-radius: 6px; flex-shrink: 0; }
         .diagnostics-panel { background: var(--error-color, #ffcccc); padding: 12px; margin-bottom: 8px; border-radius: 4px; }
         .diagnostics-panel ul { margin: 8px 0; padding-left: 20px; }
@@ -534,6 +566,59 @@ class FeedparserRssNewsCard extends HTMLElement {
         </div>
       </ha-card>`;
     this._initialized = true;
+    this._observeResize();
+  }
+
+  /**
+   * Re-fits descriptions when the card is resized: a narrower card wraps the
+   * text over more lines, so a description that fitted may start overflowing.
+   * _render() replaces the shadow DOM, so the old observer is dropped first.
+   */
+  _observeResize() {
+    this._resizeObserver?.disconnect();
+    const scrollEl = this.shadowRoot.querySelector('.scroll-container');
+    if (!scrollEl || typeof ResizeObserver === 'undefined') return;
+    this._resizeObserver = new ResizeObserver(() => this._fitDescriptions());
+    this._resizeObserver.observe(scrollEl);
+  }
+
+  /**
+   * Trims clamped descriptions so they end with our own ellipsis inside the visible
+   * lines. Descriptions shorter than the clamp are left untouched, so nothing is cut
+   * that would have fitted. Overflow can only be measured once the nodes are laid
+   * out, hence the animation frame; text changes here never alter the node's own box,
+   * so this cannot feed back into the resize observer. In the event the passes run out,
+   * -webkit-line-clamp still cuts the text and appends its own ellipsis, so the reader is
+   * never left thinking the description ended there.
+   */
+  _fitDescriptions() {
+    if (!this.shadowRoot) return;
+    cancelAnimationFrame(this._fitFrame);
+    this._fitFrame = requestAnimationFrame(() => {
+      this.shadowRoot.querySelectorAll('.article-description.clamped').forEach(node => {
+        const full = this._fullDescriptions.get(node);
+        if (full === undefined) return;
+        node.textContent = full;
+        if (node.scrollHeight <= node.clientHeight + 1) return;
+        // -webkit-line-clamp cuts the text itself and appends its own ellipsis, glued to the
+        // last word with no space. Shorten the text so our own ellipsis lands inside the clamp
+        // instead, keeping the non-breaking space in front of it.
+        const base = full.endsWith(ELLIPSIS) ? full.slice(0, -ELLIPSIS.length) : full;
+        // Rendered height is near enough linear in the character count for the first guess to
+        // land, so this normally costs one extra measure rather than a binary search.
+        let len = Math.floor(base.length * (node.clientHeight / node.scrollHeight) * 0.98);
+        for (let pass = 0; pass < 5 && len > 0; pass++) {
+          node.textContent = base.slice(0, len).replace(/\s+\S*$/, '') + ELLIPSIS;
+          if (node.scrollHeight <= node.clientHeight + 1) break;
+          len = Math.floor(len * 0.94);
+        }
+      });
+    });
+  }
+
+  disconnectedCallback() {
+    this._resizeObserver?.disconnect();
+    cancelAnimationFrame(this._fitFrame);
   }
 
   _updateContent(articles, issues) {
@@ -568,6 +653,7 @@ class FeedparserRssNewsCard extends HTMLElement {
           this._handleLinkClick(url);
         });
       });
+      this._fitDescriptions();
     }
   }
 
@@ -670,6 +756,12 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
 
         <label>${t.ed.desc_size}</label>
         <input type="number" id="ed-descsize" min="10" max="24" value="${c.desc_font_size || 14}"/>
+
+        <label>${t.ed.desc_length}</label>
+        <input type="number" id="ed-desclen" min="0" max="2000" value="${c.max_description_length || 0}"/>
+
+        <label>${t.ed.desc_lines}</label>
+        <input type="number" id="ed-desclines" min="0" max="20" value="${c.description_max_lines || 0}"/>
 
         <label>${t.ed.card_title_color} <small class="color-hint">(${t.ed.color_hint})</small></label>
         <div class="color-field">
@@ -830,6 +922,8 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     bind('#ed-imgh',     'image_height',    v => parseInt(v) || 70);
     bind('#ed-titlesize','title_font_size', v => parseInt(v) || 15);
     bind('#ed-descsize', 'desc_font_size',  v => parseInt(v) || 14);
+    bind('#ed-desclen',  'max_description_length', v => parseInt(v) || 0);
+    bind('#ed-desclines','description_max_lines',  v => parseInt(v) || 0);
     bind('#ed-card-title-color-text',    'card_title_color');
     bind('#ed-article-title-color-text', 'article_title_color');
     bind('#ed-desc-color-text',          'desc_color');
@@ -896,6 +990,8 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     set('#ed-imgh',      c.image_height);
     set('#ed-titlesize', c.title_font_size);
     set('#ed-descsize',  c.desc_font_size);
+    set('#ed-desclen',   c.max_description_length);
+    set('#ed-desclines', c.description_max_lines);
     set('#ed-card-title-color-text',    c.card_title_color);
     set('#ed-article-title-color-text', c.article_title_color);
     set('#ed-desc-color-text',          c.desc_color);

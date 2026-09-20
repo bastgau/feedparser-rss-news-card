@@ -43,6 +43,10 @@ You will need to refresh the browser page for updates to work.
 
 *Note: Ensure you include `tags` in your inclusions list if you plan to use the category filtering feature. The Python feedparser library standardizes `<category>` XML tags into the `tags` array!*
 
+*Note: use `summary`, not `description`. The Python feedparser library normalizes the RSS
+`<description>` element into `summary`, so `description` in `inclusions` silently matches
+nothing and the card shows no text at all.*
+
 ```yaml
 sensor:
   - platform: feedparser
@@ -55,7 +59,7 @@ sensor:
     inclusions:
       - title
       - link
-      - description
+      - summary
       - image
       - published
       - tags
@@ -70,6 +74,8 @@ title: Latest News
 card_height: 400
 max_articles: 20
 show_description: true
+max_description_length: 200
+description_max_lines: 3
 show_source: true
 show_date: true
 image_width: 100
@@ -84,6 +90,29 @@ sources:
     color: "#0077cc"
 
 ```
+
+### Full-text feeds
+
+Some publishers put the **entire article** inside the RSS `<description>`, which makes the card
+unreadable. Two options keep descriptions short:
+
+| Option | Default | Effect |
+| --- | --- | --- |
+| `max_description_length` | `0` (no limit) | Shortens the description to N characters, cutting on a word boundary and appending `...`, joined to the last word by a non-breaking space so the dots are never left alone at the start of a line. Whitespace runs are always collapsed first, so the budget is spent on readable text. |
+| `description_max_lines` | `0` (no limit) | Clamps the description to N rendered lines, so every article row has the same height whatever the card width. Text that would overflow is shortened to end with the same `...` inside the visible lines, and descriptions shorter than the clamp are left untouched. |
+
+They are independent and can be combined — `max_description_length` bounds the text,
+`description_max_lines` bounds the height. When both apply, the line clamp wins: the text is
+re-shortened to fit the lines, so the ellipsis stays visible rather than landing on a hidden
+line. Fitting is measured after layout and repeated when the card is resized; with a hundred
+articles that costs on the order of 100ms per render. Both default to *no limit*, so existing cards render
+exactly as before; new cards added from the UI start at `200` / `3`.
+
+Note that this only affects display. The sensor still stores the full HTML, which for a
+full-text feed can exceed Home Assistant's 16 KB limit on recorded state attributes — the card
+keeps working (it reads live state), but the entity's history is not recorded. To reduce the
+payload at the source, list only the keys you need in the integration's `inclusions` (in
+particular leave out `summary_detail`, which is a verbatim duplicate of `summary`).
 
 ## Development
 
