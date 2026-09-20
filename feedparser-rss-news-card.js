@@ -542,9 +542,7 @@ class FeedparserRssNewsCard extends HTMLElement {
   _getArticles() {
     if (!this._hass) return [];
     let all = [];
-    // Read articles are counted whether or not they are being hidden: the toggle has to stay
-    // reachable once they are shown again, otherwise there is no way to hide them back.
-    let visited = 0;
+
     
     const excludeString = this._config.exclude_categories || '';
     const excludeList = excludeString.split(',').map(c => c.trim().toLowerCase()).filter(c => c.length > 0);
@@ -557,10 +555,6 @@ class FeedparserRssNewsCard extends HTMLElement {
       if (!Array.isArray(entries)) continue;
       
       entries.forEach(a => {
-        if (this._isVisited(sanitizeUrl(a.link))) {
-          visited++;
-          if (!this._showVisited) return;
-        }
         if (excludeList.length > 0 && Array.isArray(a.tags)) {
           const isExcluded = a.tags.some(tag => 
             tag && tag.term && excludeList.includes(tag.term.trim().toLowerCase())
@@ -570,6 +564,7 @@ class FeedparserRssNewsCard extends HTMLElement {
 
         all.push({ 
           ...a, 
+          _visited: this._isVisited(sanitizeUrl(a.link)),
           _sourceName: source.name || source.entity, 
           _sourceColor: source.color || 'var(--primary-color)' 
         });
@@ -577,9 +572,16 @@ class FeedparserRssNewsCard extends HTMLElement {
     }
 
     all.sort((a, b) => parsePublishedDate(b.published) - parsePublishedDate(a.published));
-    // Filtering happens above, so hiding read articles backfills the list instead of shrinking it.
-    this._visitedCount = visited;
-    return all.slice(0, this._config.max_articles);
+
+    const max = this._config.max_articles;
+    // Count what the toggle would actually change, not every read article the feed still holds:
+    // only those that would make the visible list. One already dropped by exclude_categories, or
+    // sitting past max_articles, changes nothing on screen and must not be announced as hidden.
+    this._visitedCount = all.slice(0, max).filter(a => a._visited).length;
+    // Read articles are removed before max_articles applies, so hiding them backfills the list
+    // with further articles instead of leaving it short.
+    const shown = this._showVisited ? all : all.filter(a => !a._visited);
+    return shown.slice(0, max);
   }
 
   _formatDate(dateStr) {

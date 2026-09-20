@@ -177,6 +177,9 @@ update. Nothing disappears from under your finger mid-click.
 
 A line above the list says how many are hidden and switches them back on
 (`3 read hidden · show` / `hide read`), so you can look at them again without editing the card.
+The count is what showing them would actually bring back, not how many read articles the feed
+still holds: one already dropped by `exclude_categories`, or sitting past `max_articles`, changes
+nothing on screen and is not counted. When there is nothing to reveal, the line is not shown.
 That switch is not remembered: reloading returns to whatever `hide_visited` says. The line only
 appears when the option is on, so a card that never asked for this gains no control of its own.
 
