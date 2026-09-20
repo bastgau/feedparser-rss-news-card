@@ -11,6 +11,7 @@ const RSS_LOCALES = {
       empty:                 { icon: '📭', text: 'Entity is reachable but contains no articles yet.' },
     },
     hidden_read: '{n} read hidden',
+    hidden_read_one: '{n} read hidden',
     show_read: 'show',
     hide_read: 'hide read',
     cmd_hint: 'Ensure feedparser is configured correctly:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
@@ -56,6 +57,7 @@ const RSS_LOCALES = {
       empty:                 { icon: '📭', text: 'Az entitás elérhető, de még nincs benne cikk.' },
     },
     hidden_read: '{n} olvasott elrejtve',
+    hidden_read_one: '{n} olvasott elrejtve',
     show_read: 'megjelenítés',
     hide_read: 'olvasottak elrejtése',
     cmd_hint: 'Feedparser beállítás szükséges:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
@@ -101,6 +103,7 @@ const RSS_LOCALES = {
       empty:                 { icon: '📭', text: 'Entität ist erreichbar, enthält aber noch keine Artikel.' },
     },
     hidden_read: '{n} gelesene ausgeblendet',
+    hidden_read_one: '{n} gelesene ausgeblendet',
     show_read: 'anzeigen',
     hide_read: 'gelesene ausblenden',
     cmd_hint: 'feedparser Konfiguration erforderlich:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
@@ -132,6 +135,52 @@ const RSS_LOCALES = {
       desc_length:         'Max. Beschreibungslänge (Zeichen, 0 = unbegrenzt)',
       desc_lines:          'Max. Beschreibungszeilen (0 = unbegrenzt)',
       color_hint:          'Leer lassen für Themenstandardfarbe',
+    },
+  },
+  fr: {
+    no_articles: 'Aucun article à afficher.',
+    diag_title: '⚠️ Diagnostic des capteurs',
+    diag_footer: 'Les capteurs manquants doivent être créés avec l\'intégration <b>feedparser</b>.',
+    problems: {
+      missing_entity:        { icon: '⚠️', text: 'Identifiant d\'entité absent de la configuration.' },
+      not_found:             { icon: '❌', text: 'L\'entité n\'existe pas dans Home Assistant.' },
+      unavailable:           { icon: '🔌', text: 'L\'entité est indisponible ou dans un état inconnu.' },
+      no_entries_attribute:  { icon: '🗂️', text: 'L\'entité n\'a pas d\'attribut «\u00A0entries\u00A0» (vérifiez la configuration de feedparser).' },
+      empty:                 { icon: '📭', text: 'L\'entité répond mais ne contient encore aucun article.' },
+    },
+    hidden_read: '{n} lus masqués',
+    hidden_read_one: '{n} lu masqué',
+    show_read: 'afficher',
+    hide_read: 'masquer les lus',
+    cmd_hint: 'Vérifiez la configuration de feedparser\u00A0:<br><b>platform\u00A0:</b> feedparser<br><b>inclusions\u00A0:</b> title, link, summary, image, published',
+    ed: {
+      card_title:          'Titre de la carte',
+      card_title_color:    'Couleur du titre de la carte',
+      article_title_color: 'Couleur du titre des articles',
+      desc_color:          'Couleur de la description',
+      sources:             'Sources (entité · nom · couleur)',
+      add_source:          '+ Ajouter une source',
+      exclude_categories:  'Catégories à exclure (séparées par des virgules)',
+      max_articles:        'Nombre maximal d\'articles',
+      card_height:         'Hauteur de la carte (px)',
+      image_position:      'Position de l\'image',
+      pos_left:            'À gauche du texte',
+      pos_top:             'Au-dessus de la description',
+      img_radius:          'Arrondi des coins de l\'image (px)',
+      img_width:           'Largeur de l\'image (px)',
+      img_height:          'Hauteur de l\'image (px)',
+      show_source:         'Afficher le nom de la source',
+      show_domain:         'Afficher le domaine de l\'article',
+      hide_visited:        'Masquer les articles déjà ouverts',
+      show_date:           'Afficher la date',
+      show_desc:           'Afficher la description',
+      show_images:         'Afficher les images',
+      keep_image_space:    'Conserver l\'espace si l\'image manque',
+      title_size:          'Taille du titre des articles (px)',
+      desc_size:           'Taille de la description (px)',
+      desc_length:         'Longueur maximale de la description (caractères, 0\u00A0= illimité)',
+      desc_lines:          'Nombre maximal de lignes de description (0\u00A0= illimité)',
+      color_hint:          'Laisser vide pour la couleur du thème',
     },
   },
 };
@@ -895,7 +944,8 @@ class FeedparserRssNewsCard extends HTMLElement {
     if (this._showVisited) {
       box.replaceChildren(btn);
     } else {
-      box.replaceChildren(el('span', '', String(t.hidden_read).replace('{n}', visited) + ' · '), btn);
+      const label = visited === 1 ? t.hidden_read_one : t.hidden_read;
+      box.replaceChildren(el('span', '', String(label).replace('{n}', visited) + ' · '), btn);
     }
   }
 

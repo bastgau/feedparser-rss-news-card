@@ -16,7 +16,7 @@ A RSS newsfeed reader card specifically for use with FeedParser sensors. Works w
 - Filter out unwanted news items by tags directly from the UI
 - Automatic language & date format detection from Home Assistant settings
 - Visual editor with color picker, toggle switches, and font size controls
-- Community localization support (English, Hungarian, German included)
+- Community localization support (English, French, Hungarian, German included)
 - Flexible layout
 
 ## Requirements
