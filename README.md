@@ -185,8 +185,12 @@ have already opened from the list. It works in two steps: the article you click 
 title greys out, then it is gone at the next render — a view change, a reload, or a sensor
 update. Nothing disappears from under your finger mid-click.
 
-A line above the list says how many are hidden and switches them back on
-(`3 read hidden · show` / `hide read`), so you can look at them again without editing the card.
+A line above the list reports how many articles are still unread, how many are hidden, and
+switches the hidden ones back on (`17 unread · 3 read hidden · show` / `17 unread · hide read`),
+so you can look at them again without editing the card. The unread count spans the whole feed,
+past `exclude_categories` but not bounded by `max_articles`: it answers how much is left to read
+rather than how much is on screen. The line appears as soon as `hide_visited` is on, even before
+anything has been read, and the switch only shows up when pressing it would change something.
 The count is what showing them would actually bring back, not how many read articles the feed
 still holds: one already dropped by `exclude_categories`, or sitting past `max_articles`, changes
 nothing on screen and is not counted. When there is nothing to reveal, the line is not shown.

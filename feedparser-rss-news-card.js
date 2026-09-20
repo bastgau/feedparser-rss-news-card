@@ -10,6 +10,8 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'Entity has no "entries" attribute (check feedparser configuration).' },
       empty:                 { icon: '📭', text: 'Entity is reachable but contains no articles yet.' },
     },
+    unread: '{n} unread',
+    unread_one: '{n} unread',
     hidden_read: '{n} read hidden',
     hidden_read_one: '{n} read hidden',
     show_read: 'show',
@@ -57,6 +59,8 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'Az entitásnak nincs "entries" attribútuma (ellenőrizd a feedparser beállítást).' },
       empty:                 { icon: '📭', text: 'Az entitás elérhető, de még nincs benne cikk.' },
     },
+    unread: '{n} olvasatlan',
+    unread_one: '{n} olvasatlan',
     hidden_read: '{n} olvasott elrejtve',
     hidden_read_one: '{n} olvasott elrejtve',
     show_read: 'megjelenítés',
@@ -104,6 +108,8 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'Entität hat kein "entries"-Attribut (feedparser Konfiguration prüfen).' },
       empty:                 { icon: '📭', text: 'Entität ist erreichbar, enthält aber noch keine Artikel.' },
     },
+    unread: '{n} ungelesen',
+    unread_one: '{n} ungelesen',
     hidden_read: '{n} gelesene ausgeblendet',
     hidden_read_one: '{n} gelesene ausgeblendet',
     show_read: 'anzeigen',
@@ -151,6 +157,8 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'L\'entité n\'a pas d\'attribut «\u00A0entries\u00A0» (vérifiez la configuration de feedparser).' },
       empty:                 { icon: '📭', text: 'L\'entité répond mais ne contient encore aucun article.' },
     },
+    unread: '{n} non lus',
+    unread_one: '{n} non lu',
     hidden_read: '{n} lus masqués',
     hidden_read_one: '{n} lu masqué',
     show_read: 'afficher',
@@ -584,6 +592,9 @@ class FeedparserRssNewsCard extends HTMLElement {
     // only those that would make the visible list. One already dropped by exclude_categories, or
     // sitting past max_articles, changes nothing on screen and must not be announced as hidden.
     this._visitedCount = all.slice(0, max).filter(a => a._visited).length;
+    // Unread is counted over the whole feed rather than the visible slice: it answers "how much
+    // is left to read", which max_articles does not bound.
+    this._unreadCount = all.filter(a => !a._visited).length;
     // Read articles are removed before max_articles applies, so hiding them backfills the list
     // with further articles instead of leaving it short.
     const shown = this._showVisited ? all : all.filter(a => !a._visited);
@@ -936,29 +947,37 @@ class FeedparserRssNewsCard extends HTMLElement {
     const box = this.shadowRoot.querySelector('.visited-toggle');
     if (!box) return;
     const visited = this._visitedCount || 0;
-    // Tied to the option, not merely to the presence of read articles: a card that never asked
-    // to hide anything should not sprout a control of its own. Once enabled it stays put, so the
-    // button still switches both ways after the read articles have been shown again.
-    if (!this._config.hide_visited || !visited) {
+    const unread = this._unreadCount || 0;
+    // Tied to the option: a card that never asked to hide anything should not sprout a line of
+    // its own. Once enabled the line stays, even with nothing hidden yet, so the unread count is
+    // always on show and the button still switches both ways.
+    if (!this._config.hide_visited) {
       box.replaceChildren();
       box.style.display = 'none';
       return;
     }
     const t = this._t();
     box.style.display = '';
-    const label = this._showVisited ? t.hide_read : t.show_read;
-    const btn = el('button', '', label);
-    btn.addEventListener('click', () => {
-      this._showVisited = !this._showVisited;
-      // Going through `set hass` would be swallowed by the stateKey guard, so re-render directly.
-      this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
-    });
-    if (this._showVisited) {
-      box.replaceChildren(btn);
-    } else {
-      const label = visited === 1 ? t.hidden_read_one : t.hidden_read;
-      box.replaceChildren(el('span', '', String(label).replace('{n}', visited) + ' · '), btn);
+    // French takes the singular at 0 as well as 1; the other locales spell both alike here.
+    const say = (one, many, n) => String(n <= 1 ? one : many).replace('{n}', n);
+    const parts = [el('span', '', say(t.unread_one, t.unread, unread))];
+    // No button while nothing would come back from pressing it.
+    if (visited) {
+      const btn = el('button', '', this._showVisited ? t.hide_read : t.show_read);
+      btn.addEventListener('click', () => {
+        this._showVisited = !this._showVisited;
+        // `set hass` would be swallowed by the stateKey guard, so re-render directly.
+        this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
+      });
+      if (!this._showVisited) parts.push(el('span', '', say(t.hidden_read_one, t.hidden_read, visited)));
+      parts.push(btn);
     }
+    const line = [];
+    parts.forEach((node, i) => {
+      if (i > 0) line.push(el('span', '', ' · '));
+      line.push(node);
+    });
+    box.replaceChildren(...line);
   }
 
   getCardSize() { return 5; }
