@@ -10,6 +10,9 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'Entity has no "entries" attribute (check feedparser configuration).' },
       empty:                 { icon: '📭', text: 'Entity is reachable but contains no articles yet.' },
     },
+    hidden_read: '{n} read hidden',
+    show_read: 'show',
+    hide_read: 'hide read',
     cmd_hint: 'Ensure feedparser is configured correctly:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:        'Card title',
@@ -29,6 +32,7 @@ const RSS_LOCALES = {
       img_height:        'Image height (px)',
       show_source:       'Show source name',
       show_domain:       'Show article domain',
+      hide_visited:      'Hide articles already opened',
       show_date:         'Show date',
       show_desc:         'Show description',
       show_images:       'Show images',
@@ -51,6 +55,9 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'Az entitásnak nincs "entries" attribútuma (ellenőrizd a feedparser beállítást).' },
       empty:                 { icon: '📭', text: 'Az entitás elérhető, de még nincs benne cikk.' },
     },
+    hidden_read: '{n} olvasott elrejtve',
+    show_read: 'megjelenítés',
+    hide_read: 'olvasottak elrejtése',
     cmd_hint: 'Feedparser beállítás szükséges:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kártya cime',
@@ -70,6 +77,7 @@ const RSS_LOCALES = {
       img_height:          'Kép magassága (px)',
       show_source:         'Forrás neve látható',
       show_domain:         'Cikk domainje látható',
+      hide_visited:        'Már megnyitott cikkek elrejtése',
       show_date:           'Dátum látható',
       show_desc:           'Leírás látható',
       show_images:         'Képek megjelenítése',
@@ -92,6 +100,9 @@ const RSS_LOCALES = {
       no_entries_attribute:  { icon: '🗂️', text: 'Entität hat kein "entries"-Attribut (feedparser Konfiguration prüfen).' },
       empty:                 { icon: '📭', text: 'Entität ist erreichbar, enthält aber noch keine Artikel.' },
     },
+    hidden_read: '{n} gelesene ausgeblendet',
+    show_read: 'anzeigen',
+    hide_read: 'gelesene ausblenden',
     cmd_hint: 'feedparser Konfiguration erforderlich:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kartentitel',
@@ -111,6 +122,7 @@ const RSS_LOCALES = {
       img_height:          'Bildhöhe (px)',
       show_source:         'Quellenname anzeigen',
       show_domain:         'Domain des Artikels anzeigen',
+      hide_visited:        'Bereits geöffnete Artikel ausblenden',
       show_date:           'Datum anzeigen',
       show_desc:           'Beschreibung anzeigen',
       show_images:         'Bilder anzeigen',
@@ -303,6 +315,11 @@ function domainHue(domain) {
  */
 const ELLIPSIS = '\u00A0...';
 
+const VISITED_KEY = 'feedparser-rss-news-card:visited';
+// Bounds the stored list: ~500 URLs stay well under 100KB, and without a cap it would only grow.
+const VISITED_LIMIT = 500;
+let VISITED_CACHE = null;
+
 function truncateText(value, maxChars) {
   const str = String(value ?? '').replace(/\s+/g, ' ').trim();
   const limit = parseInt(maxChars, 10);
@@ -355,6 +372,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       show_description: true,
       show_source: true,
       show_domain: false,
+      hide_visited: false,
       show_date: true,
       show_images: true,
       keep_image_space: false,
@@ -385,6 +403,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       show_description: config.show_description !== false,
       show_source:      config.show_source !== false,
       show_domain:      config.show_domain === true,
+      hide_visited:     config.hide_visited === true,
       show_date:        config.show_date !== false,
       show_images:      config.show_images !== false,
       keep_image_space: config.keep_image_space === true,
@@ -403,6 +422,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       desc_color:       config.desc_color || '',
     };
     this._initialized = false;
+    this._showVisited = !this._config.hide_visited;
     this._render();
     if (this._hass) {
       this._updateContent(this._articles || [], JSON.parse(this._lastIssuesJson || '[]'));
@@ -473,6 +493,9 @@ class FeedparserRssNewsCard extends HTMLElement {
   _getArticles() {
     if (!this._hass) return [];
     let all = [];
+    // Read articles are counted whether or not they are being hidden: the toggle has to stay
+    // reachable once they are shown again, otherwise there is no way to hide them back.
+    let visited = 0;
     
     const excludeString = this._config.exclude_categories || '';
     const excludeList = excludeString.split(',').map(c => c.trim().toLowerCase()).filter(c => c.length > 0);
@@ -485,6 +508,10 @@ class FeedparserRssNewsCard extends HTMLElement {
       if (!Array.isArray(entries)) continue;
       
       entries.forEach(a => {
+        if (this._isVisited(sanitizeUrl(a.link))) {
+          visited++;
+          if (!this._showVisited) return;
+        }
         if (excludeList.length > 0 && Array.isArray(a.tags)) {
           const isExcluded = a.tags.some(tag => 
             tag && tag.term && excludeList.includes(tag.term.trim().toLowerCase())
@@ -501,6 +528,8 @@ class FeedparserRssNewsCard extends HTMLElement {
     }
 
     all.sort((a, b) => parsePublishedDate(b.published) - parsePublishedDate(a.published));
+    // Filtering happens above, so hiding read articles backfills the list instead of shrinking it.
+    this._visitedCount = visited;
     return all.slice(0, this._config.max_articles);
   }
 
@@ -529,13 +558,42 @@ class FeedparserRssNewsCard extends HTMLElement {
     } catch { return dateStr; }
   }
 
+  /**
+   * Read articles, kept in localStorage so they survive a reload — the set used to live on
+   * window and was lost on every refresh, which made greying a read title pointless and
+   * hiding it impossible. Cached in memory because _isVisited runs once per article, and
+   * stored as an array rather than a serialised Set to keep insertion order for trimming.
+   * Every access is guarded: localStorage throws in Safari private mode, with site data
+   * blocked, or over quota, and the card must still render.
+   */
   _getVisited() {
-    if (!window._feedparserRssNewsCardVisited) window._feedparserRssNewsCardVisited = new Set();
-    return window._feedparserRssNewsCardVisited;
+    if (VISITED_CACHE) return VISITED_CACHE;
+    VISITED_CACHE = new Set();
+    try {
+      const raw = window.localStorage.getItem(VISITED_KEY);
+      if (raw) JSON.parse(raw).forEach(url => VISITED_CACHE.add(url));
+    } catch {
+      // No persistence available: the cache alone still works for this session.
+    }
+    return VISITED_CACHE;
   }
 
   _markVisited(url) {
-    this._getVisited().add(url);
+    const visited = this._getVisited();
+    // Re-adding would keep the URL at its original position, losing its recency on trim.
+    visited.delete(url);
+    visited.add(url);
+    try {
+      const urls = [...visited];
+      // Insertion order runs oldest first, so drop from the front.
+      const trimmed = urls.length > VISITED_LIMIT ? urls.slice(urls.length - VISITED_LIMIT) : urls;
+      if (trimmed.length !== urls.length) {
+        VISITED_CACHE = new Set(trimmed);
+      }
+      window.localStorage.setItem(VISITED_KEY, JSON.stringify(trimmed));
+    } catch {
+      // Storage refused the write; the in-memory set keeps this session consistent.
+    }
   }
 
   _isVisited(url) {
@@ -678,6 +736,8 @@ class FeedparserRssNewsCard extends HTMLElement {
         .card-body { padding: 12px 16px; }
         .card-title { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
         .scroll-container { overflow-y: scroll; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: thin; scrollbar-color: var(--divider-color) transparent; }
+        .visited-toggle { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px; }
+        .visited-toggle button { font: inherit; color: var(--primary-color); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
         .no-articles { padding: 20px; color: var(--secondary-text-color); text-align: center; }
         .article-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--divider-color); cursor: pointer; -webkit-tap-highlight-color: transparent; }
         .article-content { flex: 1; min-width: 0; text-align: left; }
@@ -709,6 +769,7 @@ class FeedparserRssNewsCard extends HTMLElement {
         <div class="card-body">
           <div class="card-title"></div>
           <div class="diagnostics"></div>
+          <div class="visited-toggle"></div>
           <div class="scroll-container"><div class="article-list"></div></div>
         </div>
       </ha-card>`;
@@ -782,6 +843,8 @@ class FeedparserRssNewsCard extends HTMLElement {
     const scrollEl = this.shadowRoot.querySelector('.scroll-container');
     if (scrollEl) scrollEl.style.height = (parseInt(card_height, 10) || 400) + 'px';
 
+    this._renderVisitedToggle();
+
     const diagEl = this.shadowRoot.querySelector('.diagnostics');
     const artEl = this.shadowRoot.querySelector('.article-list');
     if (diagEl) {
@@ -801,6 +864,38 @@ class FeedparserRssNewsCard extends HTMLElement {
         });
       });
       this._fitDescriptions();
+    }
+  }
+
+  /**
+   * Line above the list: how many read articles are hidden, and the switch to show them.
+   * The count is what makes it useful — without it nothing says anything is missing.
+   */
+  _renderVisitedToggle() {
+    const box = this.shadowRoot.querySelector('.visited-toggle');
+    if (!box) return;
+    const visited = this._visitedCount || 0;
+    // Tied to the option, not merely to the presence of read articles: a card that never asked
+    // to hide anything should not sprout a control of its own. Once enabled it stays put, so the
+    // button still switches both ways after the read articles have been shown again.
+    if (!this._config.hide_visited || !visited) {
+      box.replaceChildren();
+      box.style.display = 'none';
+      return;
+    }
+    const t = this._t();
+    box.style.display = '';
+    const label = this._showVisited ? t.hide_read : t.show_read;
+    const btn = el('button', '', label);
+    btn.addEventListener('click', () => {
+      this._showVisited = !this._showVisited;
+      // Going through `set hass` would be swallowed by the stateKey guard, so re-render directly.
+      this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
+    });
+    if (this._showVisited) {
+      box.replaceChildren(btn);
+    } else {
+      box.replaceChildren(el('span', '', String(t.hidden_read).replace('{n}', visited) + ' · '), btn);
     }
   }
 
@@ -952,6 +1047,13 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
             <label for="tog-source">${t.ed.show_source}</label>
             <label class="toggle">
               <input type="checkbox" id="tog-source" ${c.show_source !== false ? 'checked' : ''}/>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
+            <label for="tog-hide-visited">${t.ed.hide_visited}</label>
+            <label class="toggle">
+              <input type="checkbox" id="tog-hide-visited" ${c.hide_visited === true ? 'checked' : ''}/>
               <span class="slider"></span>
             </label>
           </div>
@@ -1121,6 +1223,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
 
     bindChk('#tog-source', 'show_source');
     bindChk('#tog-domain', 'show_domain');
+    bindChk('#tog-hide-visited', 'hide_visited');
     bindChk('#tog-date',   'show_date');
     bindChk('#tog-desc',   'show_description');
     bindChk('#tog-images', 'show_images');
@@ -1166,6 +1269,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     set('#ed-desc-color-text',          c.desc_color);
     setChk('#tog-source', c.show_source !== false);
     setChk('#tog-domain', c.show_domain === true);
+    setChk('#tog-hide-visited', c.hide_visited === true);
     setChk('#tog-date',   c.show_date !== false);
     setChk('#tog-desc',   c.show_description !== false);
     setChk('#tog-images', c.show_images !== false);

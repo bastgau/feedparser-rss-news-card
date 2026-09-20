@@ -82,6 +82,7 @@ max_description_length: 200
 description_max_lines: 3
 show_source: true
 show_domain: true
+hide_visited: true
 show_date: true
 image_position: left
 image_width: 100
@@ -166,6 +167,32 @@ its distance from the others is not guaranteed.
 Alternatively, if you prefer a coloured badge per site, split the aggregated feed into one feed
 per site, declare one `feedparser` sensor for each, and list them all under `sources:` with their
 own `name` and `color`.
+
+### Hiding articles you already opened
+
+An aggregated feed serves the same articles for days, so `hide_visited: true` drops the ones you
+have already opened from the list. It works in two steps: the article you click stays put and its
+title greys out, then it is gone at the next render — a view change, a reload, or a sensor
+update. Nothing disappears from under your finger mid-click.
+
+A line above the list says how many are hidden and switches them back on
+(`3 read hidden · show` / `hide read`), so you can look at them again without editing the card.
+That switch is not remembered: reloading returns to whatever `hide_visited` says. The line only
+appears when the option is on, so a card that never asked for this gains no control of its own.
+
+Read articles are filtered before `max_articles` is applied, so hiding three of them backfills
+the list with three more rather than leaving you short.
+
+What to expect, since none of it is obvious:
+
+- The list lives in `localStorage`, so it survives reloads but is **per browser**: an article
+  read on a desktop still shows up on a phone, and clearing site data resets it. It is capped at
+  500 entries, oldest dropped first.
+- "Read" means "opened from this card". An article read anywhere else still shows.
+- There is no way to clear the list, and no per-article way to mark something unread.
+- If every article in the feed has been read, the card shows its "no articles" message.
+- With the option off, one thing still changes: a read title now stays greyed after a reload
+  instead of turning black again.
 
 ### Full-text feeds
 
