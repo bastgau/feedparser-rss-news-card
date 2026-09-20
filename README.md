@@ -150,6 +150,11 @@ otherwise show none at all:
 default_image: /local/feedparser-placeholder.svg
 ```
 
+The card draws images with `object-fit: cover`, so a fallback is cropped to whatever geometry
+`image_position`, `image_width` and `image_height` produce. Give it a square canvas and keep its
+motif in the middle, or it will be sliced apart: a 400×280 picture with detail near its edges
+loses that detail at `image_height: 150`, in either layout.
+
 Unlike the feed's own fields, this option accepts a Home Assistant local path as well as an
 absolute `http(s)` URL: drop a file in `config/www/` and it is served from `/local/`. Feed data
 keeps the stricter rule and can never point at a local path. A protocol-relative value
