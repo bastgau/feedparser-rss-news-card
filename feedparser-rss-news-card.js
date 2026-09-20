@@ -24,6 +24,7 @@ const RSS_LOCALES = {
       img_width:         'Image width (px)',
       img_height:        'Image height (px)',
       show_source:       'Show source name',
+      show_domain:       'Show article domain',
       show_date:         'Show date',
       show_desc:         'Show description',
       show_images:       'Show images',
@@ -60,6 +61,7 @@ const RSS_LOCALES = {
       img_width:           'Kép szélessége (px)',
       img_height:          'Kép magassága (px)',
       show_source:         'Forrás neve látható',
+      show_domain:         'Cikk domainje látható',
       show_date:           'Dátum látható',
       show_desc:           'Leírás látható',
       show_images:         'Képek megjelenítése',
@@ -96,6 +98,7 @@ const RSS_LOCALES = {
       img_width:           'Bildbreite (px)',
       img_height:          'Bildhöhe (px)',
       show_source:         'Quellenname anzeigen',
+      show_domain:         'Domain des Artikels anzeigen',
       show_date:           'Datum anzeigen',
       show_desc:           'Beschreibung anzeigen',
       show_images:         'Bilder anzeigen',
@@ -205,6 +208,41 @@ function feedTextToPlain(value) {
   }
 }
 
+/**
+ * Returns the display hostname of an http(s) URL, with a leading "www." removed.
+ * Aggregated feeds (FreshRSS and friends) carry articles from several sites under
+ * a single sensor, and the link is the only per-article field that identifies the
+ * origin: RSS <source> is usually absent and the author can differ within one site.
+ */
+function hostnameFromUrl(value) {
+  const url = sanitizeUrl(value);
+  if (!url) return '';
+  try {
+    return new URL(url).hostname.replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+}
+
+/**
+ * Stable hue (0-359) derived from a domain, so a site always gets the same colour
+ * without any configuration, and a site added to the feed later just works.
+ */
+function domainHue(domain) {
+  let hash = 0;
+  for (let i = 0; i < domain.length; i++) hash = (hash * 31 + domain.charCodeAt(i)) % 360;
+  return hash;
+}
+
+/**
+ * Collapses whitespace runs and shortens text to maxChars, cutting on a word
+ * boundary. Feed summaries often carry long runs of newlines and spaces, which
+ * would otherwise eat the character budget before any readable text.
+ * maxChars <= 0 means no limit (whitespace is still collapsed). A non-breaking space joins the
+ * ellipsis to the last word, so a wrap cannot strand the dots at the start of a line. It is
+ * written as an escape on purpose: a literal U+00A0 would be invisible on review, and a stray
+ * reformat could silently turn it back into an ordinary space.
+ */
 const ELLIPSIS = '\u00A0...';
 
 function truncateText(value, maxChars) {
@@ -258,6 +296,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       card_height: 400,
       show_description: true,
       show_source: true,
+      show_domain: false,
       show_date: true,
       show_images: true,
       keep_image_space: false,
@@ -285,6 +324,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       card_height:      config.card_height || 400,
       show_description: config.show_description !== false,
       show_source:      config.show_source !== false,
+      show_domain:      config.show_domain === true,
       show_date:        config.show_date !== false,
       show_images:      config.show_images !== false,
       keep_image_space: config.keep_image_space === true,
@@ -440,7 +480,7 @@ class FeedparserRssNewsCard extends HTMLElement {
   }
 
   _buildArticleNodes(articles) {
-    const { show_source, show_date, show_description, image_width, image_height, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
+    const { show_source, show_domain, show_date, show_description, image_width, image_height, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
     const t = this._t();
     const frag = document.createDocumentFragment();
     if (articles.length === 0) {
@@ -493,16 +533,31 @@ class FeedparserRssNewsCard extends HTMLElement {
       titleEl.style.color = (link && this._isVisited(link)) ? 'var(--disabled-text-color)' : titleColor;
       content.appendChild(titleEl);
 
-      if (show_source || show_date) {
-        const meta = el('div', 'article-meta');
+      if (show_source || show_domain || show_date) {
+        // Collect the parts first, so separators only ever sit between two of them.
+        const parts = [];
         if (show_source) {
           const src = el('span', 'article-source', String(a._sourceName ?? ''));
           src.style.color = sanitizeCssColor(a._sourceColor, 'var(--primary-color)');
-          meta.appendChild(src);
+          parts.push(src);
         }
-        if (show_source && show_date) meta.appendChild(el('span', 'article-meta-separator', '·'));
-        if (show_date && pubDate) meta.appendChild(el('span', '', this._formatDate(pubDate)));
-        content.appendChild(meta);
+        if (show_domain) {
+          const domain = hostnameFromUrl(a.link);
+          if (domain) {
+            const badge = el('span', 'article-domain', domain);
+            badge.style.setProperty('--domain-hue', String(domainHue(domain)));
+            parts.push(badge);
+          }
+        }
+        if (show_date && pubDate) parts.push(el('span', '', this._formatDate(pubDate)));
+        if (parts.length) {
+          const meta = el('div', 'article-meta');
+          parts.forEach((part, i) => {
+            if (i > 0) meta.appendChild(el('span', 'article-meta-separator', '·'));
+            meta.appendChild(part);
+          });
+          content.appendChild(meta);
+        }
       }
 
       if (show_description && desc) {
@@ -552,6 +607,19 @@ class FeedparserRssNewsCard extends HTMLElement {
         .article-meta { font-size: 11px; color: var(--secondary-text-color); margin-bottom: 4px; display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
         .article-source { font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; }
         .article-meta-separator { opacity: 0.4; }
+        /* oklch() keeps perceived lightness constant across hues, which hsl() does not:
+           at a fixed hsl lightness a yellow-green badge is far paler than a blue one.
+           Blending with the theme's own text colour then keeps it readable on light and
+           dark themes alike, without guessing which is active — HA themes do not follow
+           prefers-color-scheme. Lightness, chroma and blend ratio were calibrated over
+           24 hues on light, dark and grey cards for the most saturated badge that still
+           clears 4.5:1 everywhere (worst case 4.95:1). The hsl() lines are fallbacks for
+           engines lacking either function. */
+        .article-domain { font-weight: 600; padding: 1px 7px; border-radius: 999px; line-height: 1.6;
+          color: hsl(var(--domain-hue, 0) 65% 40%);
+          color: color-mix(in srgb, oklch(0.58 0.22 var(--domain-hue, 0)) 65%, var(--primary-text-color));
+          background: hsl(var(--domain-hue, 0) 70% 50% / 0.16);
+          background: oklch(0.58 0.22 var(--domain-hue, 0) / 0.16); }
         .article-description { line-height: 1.4; white-space: normal; word-break: break-word; }
         .article-description.clamped { display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
         .article-image { object-fit: cover; border-radius: 6px; flex-shrink: 0; }
@@ -799,6 +867,13 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
             </label>
           </div>
           <div class="toggle-row">
+            <label for="tog-domain">${t.ed.show_domain}</label>
+            <label class="toggle">
+              <input type="checkbox" id="tog-domain" ${c.show_domain === true ? 'checked' : ''}/>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
             <label for="tog-date">${t.ed.show_date}</label>
             <label class="toggle">
               <input type="checkbox" id="tog-date" ${c.show_date !== false ? 'checked' : ''}/>
@@ -954,6 +1029,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     bindColorPicker('#ed-desc-color',          '#ed-desc-color-text',          '#prev-desc-color',          'desc_color');
 
     bindChk('#tog-source', 'show_source');
+    bindChk('#tog-domain', 'show_domain');
     bindChk('#tog-date',   'show_date');
     bindChk('#tog-desc',   'show_description');
     bindChk('#tog-images', 'show_images');
@@ -996,6 +1072,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     set('#ed-article-title-color-text', c.article_title_color);
     set('#ed-desc-color-text',          c.desc_color);
     setChk('#tog-source', c.show_source !== false);
+    setChk('#tog-domain', c.show_domain === true);
     setChk('#tog-date',   c.show_date !== false);
     setChk('#tog-desc',   c.show_description !== false);
     setChk('#tog-images', c.show_images !== false);

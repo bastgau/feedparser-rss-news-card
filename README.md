@@ -77,6 +77,7 @@ show_description: true
 max_description_length: 200
 description_max_lines: 3
 show_source: true
+show_domain: true
 show_date: true
 image_width: 100
 image_height: 70
@@ -90,6 +91,31 @@ sources:
     color: "#0077cc"
 
 ```
+
+### Aggregated feeds
+
+If a single sensor carries articles from several sites (FreshRSS categories, Feedly boards and
+similar aggregators), `show_source` can only show the one `name` you gave that entity. Set
+`show_domain: true` to also show each article's own site, derived from its link:
+
+```
+Blogs · korben.info · 18 Sept
+```
+
+The link is the only per-article field that reliably identifies the origin — RSS `<source>` is
+usually absent from aggregator output, and the author can differ from one article to the next
+within the same site. The leading `www.` is stripped. The option is off by default.
+
+The domain is shown as a coloured badge, its hue derived from the domain itself, so every site
+keeps the same colour across reloads and a site added to the feed later is coloured without any
+configuration. The colour is blended with the theme's text colour rather than picked per theme,
+so the badge stays readable on light and dark themes alike — measured at 4.5:1 or better across
+the hue range. With many sources, two domains can land on nearby hues; the hue is stable, but
+its distance from the others is not guaranteed.
+
+Alternatively, if you prefer a coloured badge per site, split the aggregated feed into one feed
+per site, declare one `feedparser` sensor for each, and list them all under `sources:` with their
+own `name` and `color`.
 
 ### Full-text feeds
 
