@@ -77,6 +77,7 @@ type: custom:feedparser-rss-news-card
 title: Latest News
 card_height: 400
 max_articles: 20
+oldest_first: false
 show_description: true
 max_description_length: 200
 description_max_lines: 3
@@ -167,6 +168,15 @@ its distance from the others is not guaranteed.
 Alternatively, if you prefer a coloured badge per site, split the aggregated feed into one feed
 per site, declare one `feedparser` sensor for each, and list them all under `sources:` with their
 own `name` and `color`.
+
+### Reading order
+
+Articles are listed newest first. Set `oldest_first: true` to read them the other way round,
+from the oldest to the most recent.
+
+This reverses the display, not the selection: the card still keeps the newest `max_articles` of
+the feed and simply reads them backwards. It does not start showing the oldest articles of the
+feed and never reaching the new ones.
 
 ### Hiding articles you already opened
 

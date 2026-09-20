@@ -34,6 +34,7 @@ const RSS_LOCALES = {
       show_source:       'Show source name',
       show_domain:       'Show article domain',
       hide_visited:      'Hide articles already opened',
+      oldest_first:      'Oldest first',
       show_date:         'Show date',
       show_desc:         'Show description',
       show_images:       'Show images',
@@ -80,6 +81,7 @@ const RSS_LOCALES = {
       show_source:         'Forrás neve látható',
       show_domain:         'Cikk domainje látható',
       hide_visited:        'Már megnyitott cikkek elrejtése',
+      oldest_first:        'Legrégebbi elöl',
       show_date:           'Dátum látható',
       show_desc:           'Leírás látható',
       show_images:         'Képek megjelenítése',
@@ -126,6 +128,7 @@ const RSS_LOCALES = {
       show_source:         'Quellenname anzeigen',
       show_domain:         'Domain des Artikels anzeigen',
       hide_visited:        'Bereits geöffnete Artikel ausblenden',
+      oldest_first:        'Älteste zuerst',
       show_date:           'Datum anzeigen',
       show_desc:           'Beschreibung anzeigen',
       show_images:         'Bilder anzeigen',
@@ -172,6 +175,7 @@ const RSS_LOCALES = {
       show_source:         'Afficher le nom de la source',
       show_domain:         'Afficher le domaine de l\'article',
       hide_visited:        'Masquer les articles déjà ouverts',
+      oldest_first:        'Les plus anciens en premier',
       show_date:           'Afficher la date',
       show_desc:           'Afficher la description',
       show_images:         'Afficher les images',
@@ -422,6 +426,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       show_source: true,
       show_domain: false,
       hide_visited: false,
+      oldest_first: false,
       show_date: true,
       show_images: true,
       keep_image_space: false,
@@ -453,6 +458,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       show_source:      config.show_source !== false,
       show_domain:      config.show_domain === true,
       hide_visited:     config.hide_visited === true,
+      oldest_first:     config.oldest_first === true,
       show_date:        config.show_date !== false,
       show_images:      config.show_images !== false,
       keep_image_space: config.keep_image_space === true,
@@ -581,7 +587,11 @@ class FeedparserRssNewsCard extends HTMLElement {
     // Read articles are removed before max_articles applies, so hiding them backfills the list
     // with further articles instead of leaving it short.
     const shown = this._showVisited ? all : all.filter(a => !a._visited);
-    return shown.slice(0, max);
+    const kept = shown.slice(0, max);
+    // Reversed after the slice, not by sorting the other way: the card still keeps the newest
+    // max_articles and merely reads them oldest first. Sorting ascending would instead pick the
+    // oldest articles of the feed and never show a new one.
+    return this._config.oldest_first ? kept.reverse() : kept;
   }
 
   _formatDate(dateStr) {
@@ -1103,6 +1113,13 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
             </label>
           </div>
           <div class="toggle-row">
+            <label for="tog-oldest">${t.ed.oldest_first}</label>
+            <label class="toggle">
+              <input type="checkbox" id="tog-oldest" ${c.oldest_first === true ? 'checked' : ''}/>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="toggle-row">
             <label for="tog-hide-visited">${t.ed.hide_visited}</label>
             <label class="toggle">
               <input type="checkbox" id="tog-hide-visited" ${c.hide_visited === true ? 'checked' : ''}/>
@@ -1276,6 +1293,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     bindChk('#tog-source', 'show_source');
     bindChk('#tog-domain', 'show_domain');
     bindChk('#tog-hide-visited', 'hide_visited');
+    bindChk('#tog-oldest', 'oldest_first');
     bindChk('#tog-date',   'show_date');
     bindChk('#tog-desc',   'show_description');
     bindChk('#tog-images', 'show_images');
@@ -1322,6 +1340,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     setChk('#tog-source', c.show_source !== false);
     setChk('#tog-domain', c.show_domain === true);
     setChk('#tog-hide-visited', c.hide_visited === true);
+    setChk('#tog-oldest', c.oldest_first === true);
     setChk('#tog-date',   c.show_date !== false);
     setChk('#tog-desc',   c.show_description !== false);
     setChk('#tog-images', c.show_images !== false);
