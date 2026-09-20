@@ -728,9 +728,13 @@ class FeedparserRssNewsCard extends HTMLElement {
       let imageNode = null;
       if (show_images) {
         const found = resolveArticleImage(a);
-        // The integration hands back the Home Assistant favicon when it finds nothing, so treat
-        // that as no image at all and let the configured fallback take over.
-        const image = (!found || found === HA_DEFAULT_THUMBNAIL) && default_image ? default_image : found;
+        // The integration's favicon stands in for an image the article does have, so a configured
+        // fallback always replaces it. When the article carries none at all, keep_image_space is
+        // what decides whether the row gets a thumbnail — a card asking for no reserved space
+        // should not gain one through the fallback.
+        const image = default_image && (found === HA_DEFAULT_THUMBNAIL || (!found && keep_image_space))
+          ? default_image
+          : found;
         if (image) {
           const img = el('img', 'article-image');
           img.src = image;

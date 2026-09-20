@@ -161,6 +161,11 @@ keeps the stricter rule and can never point at a local path. A protocol-relative
 (`//example.com/x.png`) is another origin in disguise and is rejected. An article that carries a
 real image still uses it; leave the option empty to keep the current behaviour.
 
+`keep_image_space` has the final say for an article carrying no image at all: with it off, the
+row stays free of any thumbnail and the fallback is not drawn either, which is what asking for
+no reserved space means. The favicon is a different matter — it stands in for an image the
+article does have — so it is replaced by the fallback whatever `keep_image_space` says.
+
 For the extra fields to reach the card they have to survive the integration's `inclusions`
 filter, hence `media_content` in the sensor example above. Feeds whose images are inline in
 the summary need `summary` instead.
