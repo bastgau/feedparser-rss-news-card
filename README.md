@@ -89,6 +89,7 @@ image_position: left
 image_width: 100
 image_height: 70
 image_radius: 6
+default_image: /local/feedparser-placeholder.svg
 exclude_categories: formule-1, voetbal
 sources:
   - entity: sensor.rss_nu_nl_feed
@@ -137,8 +138,23 @@ The card widens the search and takes the first usable URL from, in order:
 6. the first `<img>` found in the summary
 
 The Home Assistant favicon is demoted to last resort rather than taken first, so it never
-shadows a field holding the real image. Every candidate must be an absolute `http(s)` URL,
-so a relative path or a `javascript:` value yields no image rather than a broken one.
+shadows a field holding the real image. Every candidate coming from the feed must be an absolute
+`http(s)` URL, so a relative path or a `javascript:` value yields no image rather than a broken
+one.
+
+When nothing is found, the integration hands back that favicon, which rarely suits a news list.
+Point `default_image` at your own picture to replace it — and to fill in for articles that would
+otherwise show none at all:
+
+```yaml
+default_image: /local/feedparser-placeholder.svg
+```
+
+Unlike the feed's own fields, this option accepts a Home Assistant local path as well as an
+absolute `http(s)` URL: drop a file in `config/www/` and it is served from `/local/`. Feed data
+keeps the stricter rule and can never point at a local path. A protocol-relative value
+(`//example.com/x.png`) is another origin in disguise and is rejected. An article that carries a
+real image still uses it; leave the option empty to keep the current behaviour.
 
 For the extra fields to reach the card they have to survive the integration's `inclusions`
 filter, hence `media_content` in the sensor example above. Feeds whose images are inline in

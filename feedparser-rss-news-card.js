@@ -31,6 +31,7 @@ const RSS_LOCALES = {
       pos_left:          'Left of the text',
       pos_top:           'Above the description',
       img_radius:        'Image corner radius (px)',
+      default_image:     'Fallback image (URL or /local/...)',
       img_width:         'Image width (px)',
       img_height:        'Image height (px)',
       show_source:       'Show source name',
@@ -80,6 +81,7 @@ const RSS_LOCALES = {
       pos_left:            'A szöveg bal oldalán',
       pos_top:             'A leírás fölött',
       img_radius:          'Kép sarok lekerekítése (px)',
+      default_image:       'Tartalék kép (URL vagy /local/...)',
       img_width:           'Kép szélessége (px)',
       img_height:          'Kép magassága (px)',
       show_source:         'Forrás neve látható',
@@ -129,6 +131,7 @@ const RSS_LOCALES = {
       pos_left:            'Links vom Text',
       pos_top:             'Über der Beschreibung',
       img_radius:          'Eckenradius des Bildes (px)',
+      default_image:       'Ersatzbild (URL oder /local/...)',
       img_width:           'Bildbreite (px)',
       img_height:          'Bildhöhe (px)',
       show_source:         'Quellenname anzeigen',
@@ -178,6 +181,7 @@ const RSS_LOCALES = {
       pos_left:            'À gauche du texte',
       pos_top:             'Au-dessus de la description',
       img_radius:          'Arrondi des coins de l\'image (px)',
+      default_image:       'Image de remplacement (URL ou /local/...)',
       img_width:           'Largeur de l\'image (px)',
       img_height:          'Hauteur de l\'image (px)',
       show_source:         'Afficher le nom de la source',
@@ -356,6 +360,20 @@ function resolveArticleImage(a) {
 }
 
 /**
+ * Image source taken from the card configuration, which may be a Home Assistant local path
+ * such as /local/placeholder.svg as well as an absolute http(s) URL. Feed data still goes
+ * through sanitizeUrl: only the configuration, authored by the user, may name a local file.
+ * A leading "//" is protocol-relative — another origin in disguise — and is not a local path.
+ */
+function sanitizeImageSource(value) {
+  if (typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (trimmed.startsWith('//')) return '';
+  if (trimmed.startsWith('/')) return trimmed;
+  return sanitizeUrl(trimmed);
+}
+
+/**
  * Stable hue (0-359) derived from a domain, so a site always gets the same colour
  * without any configuration, and a site added to the feed later just works.
  */
@@ -440,6 +458,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       keep_image_space: false,
       image_position: 'left',
       image_radius: 6,
+      default_image: '',
       image_width: 100,
       image_height: 70,
       title_font_size: 15,
@@ -473,6 +492,7 @@ class FeedparserRssNewsCard extends HTMLElement {
       image_position:   config.image_position === 'top' ? 'top' : 'left',
       image_radius:     Number.isFinite(parseInt(config.image_radius, 10)) && parseInt(config.image_radius, 10) >= 0
                           ? parseInt(config.image_radius, 10) : 6,
+      default_image:    sanitizeImageSource(config.default_image),
       image_width:      config.image_width || 100,
       image_height:     config.image_height || 70,
       title_font_size:  config.title_font_size || 15,
@@ -673,7 +693,7 @@ class FeedparserRssNewsCard extends HTMLElement {
   }
 
   _buildArticleNodes(articles) {
-    const { show_source, show_domain, show_date, show_description, image_width, image_height, image_position, image_radius, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
+    const { show_source, show_domain, show_date, show_description, image_width, image_height, image_position, image_radius, default_image, title_font_size, desc_font_size, max_description_length, description_max_lines, article_title_color, desc_color, show_images, keep_image_space } = this._config;
     const t = this._t();
     const frag = document.createDocumentFragment();
     if (articles.length === 0) {
@@ -707,7 +727,10 @@ class FeedparserRssNewsCard extends HTMLElement {
         : `width:${imgW}px;min-width:${imgW}px;height:${imgH}px;`) + `border-radius:${imgRadius}px;`;
       let imageNode = null;
       if (show_images) {
-        const image = resolveArticleImage(a);
+        const found = resolveArticleImage(a);
+        // The integration hands back the Home Assistant favicon when it finds nothing, so treat
+        // that as no image at all and let the configured fallback take over.
+        const image = (!found || found === HA_DEFAULT_THUMBNAIL) && default_image ? default_image : found;
         if (image) {
           const img = el('img', 'article-image');
           img.src = image;
@@ -1075,6 +1098,9 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
           <option value="top" ${c.image_position === 'top' ? 'selected' : ''}>${t.ed.pos_top}</option>
         </select>
 
+        <label>${t.ed.default_image}</label>
+        <input type="text" id="ed-defaultimg" placeholder="/local/feedparser-placeholder.svg" value="${c.default_image || ''}"/>
+
         <label>${t.ed.img_radius}</label>
         <input type="number" id="ed-imgradius" min="0" max="40" value="${c.image_radius === undefined ? 6 : c.image_radius}"/>
 
@@ -1273,6 +1299,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     bind('#ed-max',      'max_articles',    v => parseInt(v) || 10);
     bind('#ed-height',   'card_height',     v => parseInt(v) || 400);
     bind('#ed-imgpos',   'image_position',  v => v === 'top' ? 'top' : 'left');
+    bind('#ed-defaultimg','default_image');
     bind('#ed-imgradius','image_radius',    v => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= 0 ? n : 6; });
     bind('#ed-imgw',     'image_width',     v => parseInt(v) || 100);
     bind('#ed-imgh',     'image_height',    v => parseInt(v) || 70);
@@ -1346,6 +1373,7 @@ class FeedparserRssNewsCardEditor extends HTMLElement {
     set('#ed-max',       c.max_articles);
     set('#ed-height',    c.card_height);
     set('#ed-imgpos',    c.image_position || 'left');
+    set('#ed-defaultimg', c.default_image);
     set('#ed-imgradius', c.image_radius === undefined ? 6 : c.image_radius);
     set('#ed-imgw',      c.image_width);
     set('#ed-imgh',      c.image_height);
