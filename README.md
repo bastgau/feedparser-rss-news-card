@@ -232,6 +232,14 @@ appears when the option is on, so a card that never asked for this gains no cont
 Read articles are filtered before `max_articles` is applied, so hiding three of them backfills
 the list with three more rather than leaving you short.
 
+At the right end of that same line sits a button that marks the whole feed as read at once.
+"Whole feed" is the same population the unread count reports — everything past
+`exclude_categories`, not bounded by `max_articles` — so the count drops to 0 rather than to
+whatever was off screen. Nothing marks an article unread again, so an `undo` link appears next
+to the counters and puts the list back exactly as it was. It lasts for the session only: a
+reload loses it, and so does reading anything else, since restoring the snapshot would unread
+that too. The button is there only while something is left to mark.
+
 Each row also carries a ✕ that marks the article as read without opening it, for the ones you
 can tell from the title you do not want. It applies immediately — that row goes away and another
 takes its place — since making it disappear is the whole point, and the scroll position is kept

@@ -17,6 +17,9 @@ const RSS_LOCALES = {
     show_read: 'show',
     hide_read: 'hide read',
     dismiss: 'Mark as read without opening',
+    mark_all_read: '\u2713 all read',
+    mark_all_read_title: 'Mark every article as read',
+    undo: 'undo',
     cmd_hint: 'Ensure feedparser is configured correctly:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:        'Card title',
@@ -68,6 +71,9 @@ const RSS_LOCALES = {
     show_read: 'megjelenítés',
     hide_read: 'olvasottak elrejtése',
     dismiss: 'Megjelölés olvasottként megnyitás nélkül',
+    mark_all_read: '\u2713 mind olvasott',
+    mark_all_read_title: 'Minden cikk megjelölése olvasottként',
+    undo: 'visszavonás',
     cmd_hint: 'Feedparser beállítás szükséges:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kártya cime',
@@ -119,6 +125,9 @@ const RSS_LOCALES = {
     show_read: 'anzeigen',
     hide_read: 'gelesene ausblenden',
     dismiss: 'Als gelesen markieren, ohne zu öffnen',
+    mark_all_read: '\u2713 alle gelesen',
+    mark_all_read_title: 'Alle Artikel als gelesen markieren',
+    undo: 'rückgängig',
     cmd_hint: 'feedparser Konfiguration erforderlich:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kartentitel',
@@ -170,6 +179,9 @@ const RSS_LOCALES = {
     show_read: 'afficher',
     hide_read: 'masquer les lus',
     dismiss: 'Marquer comme lu sans ouvrir',
+    mark_all_read: '\u2713 tout lu',
+    mark_all_read_title: 'Marquer tous les articles comme lus',
+    undo: 'annuler',
     cmd_hint: 'Vérifiez la configuration de feedparser\u00A0:<br><b>platform\u00A0:</b> feedparser<br><b>inclusions\u00A0:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Titre de la carte',
@@ -637,7 +649,11 @@ class FeedparserRssNewsCard extends HTMLElement {
     this._visitedCount = all.slice(0, max).filter(a => a._visited).length;
     // Unread is counted over the whole feed rather than the visible slice: it answers "how much
     // is left to read", which max_articles does not bound.
-    this._unreadCount = all.filter(a => !a._visited).length;
+    const unread = all.filter(a => !a._visited);
+    this._unreadCount = unread.length;
+    // Same population, minus the articles with no usable link: those have no storage key, so
+    // they cannot be marked and must not make the button look like it would do something.
+    this._unreadUrls = unread.map(a => sanitizeUrl(a.link)).filter(Boolean);
     // Read articles are removed before max_articles applies, so hiding them backfills the list
     // with further articles instead of leaving it short.
     const shown = this._showVisited ? all : all.filter(a => !a._visited);
@@ -693,13 +709,10 @@ class FeedparserRssNewsCard extends HTMLElement {
     return VISITED_CACHE;
   }
 
-  _markVisited(url) {
-    const visited = this._getVisited();
-    // Re-adding would keep the URL at its original position, losing its recency on trim.
-    visited.delete(url);
-    visited.add(url);
+  /** Trims to the cap and writes once. Kept apart so marking a whole feed is a single write. */
+  _persistVisited() {
     try {
-      const urls = [...visited];
+      const urls = [...this._getVisited()];
       // Insertion order runs oldest first, so drop from the front.
       const trimmed = urls.length > VISITED_LIMIT ? urls.slice(urls.length - VISITED_LIMIT) : urls;
       if (trimmed.length !== urls.length) {
@@ -709,6 +722,30 @@ class FeedparserRssNewsCard extends HTMLElement {
     } catch {
       // Storage refused the write; the in-memory set keeps this session consistent.
     }
+  }
+
+  _markVisited(url) {
+    const visited = this._getVisited();
+    // Re-adding would keep the URL at its original position, losing its recency on trim.
+    visited.delete(url);
+    visited.add(url);
+    // Restoring the snapshot now would also unread this article, which nobody asked for.
+    this._undoVisited = null;
+    this._persistVisited();
+  }
+
+  /** Marks a whole batch, with one write rather than one per article. */
+  _markAllVisited(urls) {
+    const visited = this._getVisited();
+    urls.forEach(url => { visited.delete(url); visited.add(url); });
+    this._persistVisited();
+  }
+
+  /** Puts the read list back as it was before the last bulk marking. */
+  _restoreVisited(snapshot) {
+    VISITED_CACHE = new Set(snapshot);
+    this._undoVisited = null;
+    this._persistVisited();
   }
 
   _isVisited(url) {
@@ -870,7 +907,9 @@ class FeedparserRssNewsCard extends HTMLElement {
         .card-body { padding: 12px 16px; }
         .card-title { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
         .scroll-container { overflow-y: scroll; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: thin; scrollbar-color: var(--divider-color) transparent; }
-        .visited-toggle { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px; }
+        .visited-toggle { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px;
+          display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .visited-toggle .mark-all-read { margin-left: auto; white-space: nowrap; }
         .visited-toggle button { font: inherit; color: var(--primary-color); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
         .no-articles { padding: 20px; color: var(--secondary-text-color); text-align: center; }
         .article-row { position: relative; display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--divider-color); cursor: pointer; -webkit-tap-highlight-color: transparent; }
@@ -1051,26 +1090,55 @@ class FeedparserRssNewsCard extends HTMLElement {
     }
     const t = this._t();
     box.style.display = '';
+    // `set hass` would be swallowed by the stateKey guard, so every control here re-renders
+    // directly. The scroll offset is carried over because the whole list is rebuilt.
+    const rerender = () => {
+      const scroll = this.shadowRoot.querySelector('.scroll-container');
+      const offset = scroll ? scroll.scrollTop : 0;
+      this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
+      if (scroll) scroll.scrollTop = offset;
+    };
     // French takes the singular at 0 as well as 1; the other locales spell both alike here.
     const say = (one, many, n) => String(n <= 1 ? one : many).replace('{n}', n);
     const parts = [el('span', '', say(t.unread_one, t.unread, unread))];
     // No button while nothing would come back from pressing it.
     if (visited) {
       const btn = el('button', '', this._showVisited ? t.hide_read : t.show_read);
-      btn.addEventListener('click', () => {
-        this._showVisited = !this._showVisited;
-        // `set hass` would be swallowed by the stateKey guard, so re-render directly.
-        this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
-      });
+      btn.addEventListener('click', () => { this._showVisited = !this._showVisited; rerender(); });
       if (!this._showVisited) parts.push(el('span', '', say(t.hidden_read_one, t.hidden_read, visited)));
       parts.push(btn);
     }
-    const line = [];
+    // Marking a whole feed cannot be undone from the articles themselves, since nothing marks
+    // one back as unread. The snapshot is the way out, and it only lasts for the session.
+    if (this._undoVisited) {
+      const undo = el('button', '', t.undo);
+      const snapshot = this._undoVisited;
+      undo.addEventListener('click', () => { this._restoreVisited(snapshot); rerender(); });
+      parts.push(undo);
+    }
+    const left = el('div', 'visited-counts');
     parts.forEach((node, i) => {
-      if (i > 0) line.push(el('span', '', ' · '));
-      line.push(node);
+      if (i > 0) left.appendChild(el('span', '', ' · '));
+      left.appendChild(node);
     });
-    box.replaceChildren(...line);
+    box.replaceChildren(left);
+
+    // Right-hand side. Counted over the whole feed rather than the visible slice, so the label
+    // and the unread count agree: pressing it takes that count to zero.
+    const pending = this._unreadUrls || [];
+    if (pending.length) {
+      const all = el('button', 'mark-all-read', t.mark_all_read);
+      all.type = 'button';
+      // The label is shortened to fit the line; the full phrase is what the control means.
+      all.title = t.mark_all_read_title;
+      all.setAttribute('aria-label', t.mark_all_read_title);
+      all.addEventListener('click', () => {
+        this._undoVisited = [...this._getVisited()];
+        this._markAllVisited(pending);
+        rerender();
+      });
+      box.appendChild(all);
+    }
   }
 
   getCardSize() { return 5; }
