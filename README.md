@@ -235,10 +235,7 @@ the list with three more rather than leaving you short.
 At the right end of that same line sits a button that marks the whole feed as read at once.
 "Whole feed" is the same population the unread count reports — everything past
 `exclude_categories`, not bounded by `max_articles` — so the count drops to 0 rather than to
-whatever was off screen. Nothing marks an article unread again, so an `undo` link appears next
-to the counters and puts the list back exactly as it was. It lasts for the session only: a
-reload loses it, and so does reading anything else, since restoring the snapshot would unread
-that too. The button is there only while something is left to mark.
+whatever was off screen. The button is there only while something is left to mark.
 
 Each row also carries a ✕ that marks the article as read without opening it, for the ones you
 can tell from the title you do not want. It applies immediately — that row goes away and another
@@ -247,6 +244,12 @@ so the list does not jump back to the top. On a mouse the ✕ shows up when the 
 row or when it is reached with the keyboard; on a touch screen, where there is no hover, it is
 always visible. It only appears when `hide_visited` is on: without that option, marking an article
 as read merely greys its title, and a cross would promise a disappearance that never comes.
+
+Nothing marks an article unread again, and a row you just discarded is no longer on screen to
+click, so an `undo` link appears next to the counters and puts the list back exactly as it was.
+It covers whichever came last — one article dismissed, or the whole feed — one step, not a
+history. It lasts for the session: a reload loses it, and so does opening an article, since
+taking the older list back would unread that one too.
 
 What to expect, since none of it is obvious:
 

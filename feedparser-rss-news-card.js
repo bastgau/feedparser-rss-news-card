@@ -20,6 +20,7 @@ const RSS_LOCALES = {
     mark_all_read: '\u2713 all read',
     mark_all_read_title: 'Mark every article as read',
     undo: 'undo',
+    undo_title: 'Undo the last articles marked as read',
     cmd_hint: 'Ensure feedparser is configured correctly:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:        'Card title',
@@ -74,6 +75,7 @@ const RSS_LOCALES = {
     mark_all_read: '\u2713 mind olvasott',
     mark_all_read_title: 'Minden cikk megjelölése olvasottként',
     undo: 'visszavonás',
+    undo_title: 'Az utoljára olvasottnak jelöltek visszavonása',
     cmd_hint: 'Feedparser beállítás szükséges:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kártya cime',
@@ -128,6 +130,7 @@ const RSS_LOCALES = {
     mark_all_read: '\u2713 alle gelesen',
     mark_all_read_title: 'Alle Artikel als gelesen markieren',
     undo: 'rückgängig',
+    undo_title: 'Zuletzt als gelesen markierte zurücknehmen',
     cmd_hint: 'feedparser Konfiguration erforderlich:<br><b>platform:</b> feedparser<br><b>inclusions:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Kartentitel',
@@ -182,6 +185,7 @@ const RSS_LOCALES = {
     mark_all_read: '\u2713 tout lu',
     mark_all_read_title: 'Marquer tous les articles comme lus',
     undo: 'annuler',
+    undo_title: 'Annuler le dernier marquage comme lu',
     cmd_hint: 'Vérifiez la configuration de feedparser\u00A0:<br><b>platform\u00A0:</b> feedparser<br><b>inclusions\u00A0:</b> title, link, summary, image, published',
     ed: {
       card_title:          'Titre de la carte',
@@ -729,9 +733,16 @@ class FeedparserRssNewsCard extends HTMLElement {
     // Re-adding would keep the URL at its original position, losing its recency on trim.
     visited.delete(url);
     visited.add(url);
-    // Restoring the snapshot now would also unread this article, which nobody asked for.
-    this._undoVisited = null;
     this._persistVisited();
+  }
+
+  /**
+   * Remembers the read list as it stands, so the action about to happen can be taken back.
+   * Only the actions that hide something on the spot take one: opening an article instead
+   * drops it, since restoring an older list would unread the article just opened.
+   */
+  _snapshotVisited() {
+    this._undoVisited = [...this._getVisited()];
   }
 
   /** Marks a whole batch, with one write rather than one per article. */
@@ -908,7 +919,10 @@ class FeedparserRssNewsCard extends HTMLElement {
         .card-title { font-size: 24px; font-weight: 400; margin-bottom: 8px; }
         .scroll-container { overflow-y: scroll; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: thin; scrollbar-color: var(--divider-color) transparent; }
         .visited-toggle { font-size: 12px; color: var(--secondary-text-color); margin-bottom: 6px;
-          display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+          display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+        /* The counters wrap inside their own group rather than pushing the button onto a
+           second line, so it stays in the top right corner however narrow the card is. */
+        .visited-toggle .visited-counts { min-width: 0; }
         .visited-toggle .mark-all-read { margin-left: auto; white-space: nowrap; }
         .visited-toggle button { font: inherit; color: var(--primary-color); background: none; border: none; padding: 0; cursor: pointer; text-decoration: underline; }
         .no-articles { padding: 20px; color: var(--secondary-text-color); text-align: center; }
@@ -1044,6 +1058,8 @@ class FeedparserRssNewsCard extends HTMLElement {
         row.addEventListener('click', () => {
           const url = sanitizeUrl(row.dataset.rssUrl);
           if (!url) return;
+          // Taking an older list back would unread this article too, so no way back from here.
+          this._undoVisited = null;
           this._markVisited(url);
           const rowTitle = row.querySelector('.article-title');
           if (rowTitle) rowTitle.style.color = 'var(--disabled-text-color)';
@@ -1056,19 +1072,29 @@ class FeedparserRssNewsCard extends HTMLElement {
           ev.stopPropagation();
           const url = sanitizeUrl(btn.closest('.article-row')?.dataset.rssUrl);
           if (!url) return;
+          // A row discarded by mistake is gone from the list with nothing left to click, so
+          // the only way back is the undo link on the line above.
+          this._snapshotVisited();
           this._markVisited(url);
           // Unlike the opening click, whose effect is deferred so a row never vanishes under
           // the finger, making the article go away is the whole point here.
-          const scroll = this.shadowRoot.querySelector('.scroll-container');
-          const offset = scroll ? scroll.scrollTop : 0;
-          this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
-          // The list is rebuilt from scratch, which would otherwise send the view back to
-          // the top of a feed the reader had scrolled into.
-          if (scroll) scroll.scrollTop = offset;
+          this._rerender();
         });
       });
       this._fitDescriptions();
     }
+  }
+
+  /**
+   * Re-renders from the current state. `set hass` would be swallowed by the stateKey guard,
+   * so every in-card control goes through here. The scroll offset is carried over because
+   * the whole list is rebuilt, which would otherwise send the view back to the top.
+   */
+  _rerender() {
+    const scroll = this.shadowRoot.querySelector('.scroll-container');
+    const offset = scroll ? scroll.scrollTop : 0;
+    this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
+    if (scroll) scroll.scrollTop = offset;
   }
 
   /**
@@ -1090,30 +1116,31 @@ class FeedparserRssNewsCard extends HTMLElement {
     }
     const t = this._t();
     box.style.display = '';
-    // `set hass` would be swallowed by the stateKey guard, so every control here re-renders
-    // directly. The scroll offset is carried over because the whole list is rebuilt.
-    const rerender = () => {
-      const scroll = this.shadowRoot.querySelector('.scroll-container');
-      const offset = scroll ? scroll.scrollTop : 0;
-      this._updateContent(this._getArticles(), JSON.parse(this._lastIssuesJson || '[]'));
-      if (scroll) scroll.scrollTop = offset;
-    };
     // French takes the singular at 0 as well as 1; the other locales spell both alike here.
     const say = (one, many, n) => String(n <= 1 ? one : many).replace('{n}', n);
     const parts = [el('span', '', say(t.unread_one, t.unread, unread))];
     // No button while nothing would come back from pressing it.
     if (visited) {
       const btn = el('button', '', this._showVisited ? t.hide_read : t.show_read);
-      btn.addEventListener('click', () => { this._showVisited = !this._showVisited; rerender(); });
+      btn.addEventListener('click', () => { this._showVisited = !this._showVisited; this._rerender(); });
       if (!this._showVisited) parts.push(el('span', '', say(t.hidden_read_one, t.hidden_read, visited)));
       parts.push(btn);
     }
-    // Marking a whole feed cannot be undone from the articles themselves, since nothing marks
-    // one back as unread. The snapshot is the way out, and it only lasts for the session.
+    // Nothing marks an article back as unread, and a discarded row is no longer on screen to
+    // click, so the snapshot is the only way back. It covers whichever action came last — one
+    // article dismissed, or the whole feed — and lasts for the session only.
     if (this._undoVisited) {
       const undo = el('button', '', t.undo);
-      const snapshot = this._undoVisited;
-      undo.addEventListener('click', () => { this._restoreVisited(snapshot); rerender(); });
+      undo.type = 'button';
+      undo.title = t.undo_title;
+      undo.setAttribute('aria-label', t.undo_title);
+      undo.addEventListener('click', () => {
+        // Read at click time, not captured: opening an article drops the snapshot without
+        // re-rendering, so this link can outlive what it was offering to take back.
+        const snapshot = this._undoVisited;
+        if (snapshot) this._restoreVisited(snapshot);
+        this._rerender();
+      });
       parts.push(undo);
     }
     const left = el('div', 'visited-counts');
@@ -1133,9 +1160,9 @@ class FeedparserRssNewsCard extends HTMLElement {
       all.title = t.mark_all_read_title;
       all.setAttribute('aria-label', t.mark_all_read_title);
       all.addEventListener('click', () => {
-        this._undoVisited = [...this._getVisited()];
+        this._snapshotVisited();
         this._markAllVisited(pending);
-        rerender();
+        this._rerender();
       });
       box.appendChild(all);
     }
